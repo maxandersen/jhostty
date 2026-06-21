@@ -30,6 +30,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
@@ -47,7 +48,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.stage.Stage;
 
-public class jhostty {
+public class jhostty extends Application {
 
     private static final double DEFAULT_SIZE = 15.0;
     private static final String ZOOM_KEY = "jhostty.fontSize";
@@ -63,25 +64,28 @@ public class jhostty {
     private static final List<Menu> windowMenus = new ArrayList<>();
 
     public static void main(String[] args) {
-        Platform.startup(() -> {
-            cwd = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
-            currentFontFamily = defaultFontFamily();
-            currentTheme = themes().getFirst().theme();
+        Application.launch(jhostty.class, args);
+    }
 
-            var shells = detectTerminals();
-            shellCommand = shells.isEmpty() ? List.of("/bin/sh") : shells.getFirst().command();
+    @Override
+    public void start(Stage _ignored) {
+        cwd = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
+        currentFontFamily = defaultFontFamily();
+        currentTheme = themes().getFirst().theme();
 
-            // Shared CSS
-            try {
-                cssPath = Files.createTempFile("jhostty", ".css");
-                cssPath.toFile().deleteOnExit();
-                cssUrl = cssPath.toUri().toString();
-                writeCss();
-            } catch (IOException _) {}
+        var shells = detectTerminals();
+        shellCommand = shells.isEmpty() ? List.of("/bin/sh") : shells.getFirst().command();
 
-            newWindow();
-            Platform.runLater(() -> setMacAppName("jhostty"));
-        });
+        // Shared CSS
+        try {
+            cssPath = Files.createTempFile("jhostty", ".css");
+            cssPath.toFile().deleteOnExit();
+            cssUrl = cssPath.toUri().toString();
+            writeCss();
+        } catch (IOException _) {}
+
+        newWindow();
+        Platform.runLater(() -> setMacAppName("jhostty"));
     }
 
     private static Stage newWindow() {
