@@ -68,6 +68,7 @@ public class jhostty extends Application {
     private static List<String> shellCommand;
     private static Path cssPath;
     private static String cssUrl;
+    private static boolean debug;
     private static final List<Stage> windows = new ArrayList<>();
     private static final List<Menu> windowMenus = new ArrayList<>();
 
@@ -77,7 +78,12 @@ public class jhostty extends Application {
             System.err.println("Uncaught exception in thread \"" + t.getName() + "\"");
             e.printStackTrace();
         });
+        debug = List.of(args).contains("--debug");
         Application.launch(jhostty.class, args);
+    }
+
+    private static void debug(String msg) {
+        if (debug) System.err.println("[jhostty] " + msg);
     }
 
     @Override
@@ -141,6 +147,11 @@ public class jhostty extends Application {
 
         // Key shortcuts — event filter to intercept before TerminalView
         scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (debug && e.isShortcutDown()) {
+                debug("KeyEvent: code=" + e.getCode() + " meta=" + e.isMetaDown()
+                        + " ctrl=" + e.isControlDown() + " shift=" + e.isShiftDown()
+                        + " alt=" + e.isAltDown() + " shortcut=" + e.isShortcutDown());
+            }
             if (!e.isShortcutDown()) return;
             switch (e.getCode()) {
                 case N -> { newWindow(); e.consume(); }
@@ -155,6 +166,13 @@ public class jhostty extends Application {
         });
 
         scene.addEventFilter(ScrollEvent.SCROLL, e -> {
+            if (debug) {
+                debug("ScrollEvent: deltaX=" + e.getDeltaX() + " deltaY=" + e.getDeltaY()
+                        + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown()
+                        + " shift=" + e.isShiftDown() + " alt=" + e.isAltDown()
+                        + " shortcut=" + e.isShortcutDown() + " direct=" + e.isDirect()
+                        + " inertia=" + e.isInertia() + " touchCount=" + e.getTouchCount());
+            }
             if (e.isShortcutDown()) {
                 var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
                 if (target == null) target = activeTerminal;
@@ -162,6 +180,13 @@ public class jhostty extends Application {
             }
         });
         scene.addEventFilter(ZoomEvent.ZOOM, e -> {
+            if (debug) {
+                debug("ZoomEvent: factor=" + e.getZoomFactor() + " total=" + e.getTotalZoomFactor()
+                        + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown()
+                        + " shift=" + e.isShiftDown() + " alt=" + e.isAltDown()
+                        + " shortcut=" + e.isShortcutDown() + " direct=" + e.isDirect()
+                        + " inertia=" + e.isInertia());
+            }
             if (e.isShortcutDown()) {
                 var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
                 if (target == null) target = activeTerminal;
