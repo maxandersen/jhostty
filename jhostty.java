@@ -64,6 +64,11 @@ public class jhostty extends Application {
     private static final List<Menu> windowMenus = new ArrayList<>();
 
     public static void main(String[] args) {
+        // Ensure uncaught exceptions are visible
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+            System.err.println("Uncaught exception in thread \"" + t.getName() + "\"");
+            e.printStackTrace();
+        });
         Application.launch(jhostty.class, args);
     }
 
@@ -74,7 +79,10 @@ public class jhostty extends Application {
         currentTheme = themes().getFirst().theme();
 
         var shells = detectTerminals();
-        shellCommand = shells.isEmpty() ? List.of("/bin/sh") : shells.getFirst().command();
+        shellCommand = shells.isEmpty()
+                ? List.of(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "cmd.exe" : "/bin/sh")
+                : shells.getFirst().command();
+        System.err.println("[jhostty] shell: " + shellCommand);
 
         // Shared CSS
         try {
@@ -85,7 +93,9 @@ public class jhostty extends Application {
         } catch (IOException _) {}
 
         newWindow();
-        Platform.runLater(() -> setMacAppName("jhostty"));
+        if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac")) {
+            Platform.runLater(() -> setMacAppName("jhostty"));
+        }
     }
 
     private static Stage newWindow() {
