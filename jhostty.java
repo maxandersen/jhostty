@@ -28,6 +28,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import javafx.application.Application;
@@ -50,9 +52,15 @@ import javafx.stage.Stage;
 
 public class jhostty extends Application {
 
+    private static final String OS_NAME = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+    private static final boolean IS_MAC = OS_NAME.contains("mac");
+    private static final boolean IS_WINDOWS = OS_NAME.contains("win");
+    private static final String SHORTCUT_SYMBOL = IS_MAC ? "\u2318" : "Ctrl+";
+    private static final String SHIFT_SYMBOL = IS_MAC ? "\u21E7" : "Shift+";
     private static final double DEFAULT_SIZE = 15.0;
     private static final String ZOOM_KEY = "jhostty.fontSize";
     private static final String WINDOW_KEY = "jhostty.window";
+    private static final Set<TerminalView> closingTerminals = ConcurrentHashMap.newKeySet();
     private static String currentFontFamily;
     private static TerminalTheme currentTheme;
     private static TerminalView activeTerminal;
@@ -80,7 +88,7 @@ public class jhostty extends Application {
 
         var shells = detectTerminals();
         shellCommand = shells.isEmpty()
-                ? List.of(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "cmd.exe" : "/bin/sh")
+                ? List.of(IS_WINDOWS ? "cmd.exe" : "/bin/sh")
                 : shells.getFirst().command();
         System.err.println("[jhostty] shell: " + shellCommand);
 
@@ -93,7 +101,7 @@ public class jhostty extends Application {
         } catch (IOException _) {}
 
         newWindow();
-        if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac")) {
+        if (IS_MAC) {
             Platform.runLater(() -> setMacAppName("jhostty"));
         }
     }
@@ -103,10 +111,12 @@ public class jhostty extends Application {
         tabs.getStyleClass().add("jhostty-tabs");
 
         var menuBar = createMenuBar(tabs);
-        menuBar.setUseSystemMenuBar(true);
-        menuBar.setMaxHeight(0);
-        menuBar.setPrefHeight(0);
-        menuBar.setMinHeight(0);
+        if (IS_MAC) {
+            menuBar.setUseSystemMenuBar(true);
+            menuBar.setMaxHeight(0);
+            menuBar.setPrefHeight(0);
+            menuBar.setMinHeight(0);
+        }
 
         var root = new BorderPane();
         root.setTop(menuBar);
@@ -131,7 +141,7 @@ public class jhostty extends Application {
 
         // Key shortcuts — event filter to intercept before TerminalView
         scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (!e.isMetaDown()) return;
+            if (!e.isShortcutDown()) return;
             switch (e.getCode()) {
                 case N -> { newWindow(); e.consume(); }
                 case T -> { newTab(tabs); e.consume(); }
@@ -145,14 +155,14 @@ public class jhostty extends Application {
         });
 
         scene.addEventFilter(ScrollEvent.SCROLL, e -> {
-            if (e.isMetaDown() || e.isControlDown()) {
+            if (e.isShortcutDown()) {
                 var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
                 if (target == null) target = activeTerminal;
                 if (target != null) { zoomTerminal(target, e.getDeltaY() > 0 ? 1 : -1); e.consume(); }
             }
         });
         scene.addEventFilter(ZoomEvent.ZOOM, e -> {
-            if (e.isMetaDown() || e.isControlDown()) {
+            if (e.isShortcutDown()) {
                 var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
                 if (target == null) target = activeTerminal;
                 if (target != null) { zoomTerminal(target, e.getZoomFactor() > 1 ? 1 : -1); e.consume(); }
@@ -171,23 +181,23 @@ public class jhostty extends Application {
     private static MenuBar createMenuBar(TabPane tabs) {
         // Shell menu
         var newWindowItem = new MenuItem("New Window");
-        newWindowItem.setAccelerator(KeyCombination.keyCombination("Meta+N"));
+        newWindowItem.setAccelerator(KeyCombination.keyCombination("Shortcut+N"));
         newWindowItem.setOnAction(_ -> newWindow());
 
         var newTabItem = new MenuItem("New Tab");
-        newTabItem.setAccelerator(KeyCombination.keyCombination("Meta+T"));
+        newTabItem.setAccelerator(KeyCombination.keyCombination("Shortcut+T"));
         newTabItem.setOnAction(_ -> newTab(tabs));
 
         var splitH = new MenuItem("Split Horizontal");
-        splitH.setAccelerator(KeyCombination.keyCombination("Meta+D"));
+        splitH.setAccelerator(KeyCombination.keyCombination("Shortcut+D"));
         splitH.setOnAction(_ -> splitActive(Orientation.VERTICAL));
 
         var splitV = new MenuItem("Split Vertical");
-        splitV.setAccelerator(KeyCombination.keyCombination("Meta+Shift+D"));
+        splitV.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+D"));
         splitV.setOnAction(_ -> splitActive(Orientation.HORIZONTAL));
 
         var closeItem = new MenuItem("Close Terminal");
-        closeItem.setAccelerator(KeyCombination.keyCombination("Meta+W"));
+        closeItem.setAccelerator(KeyCombination.keyCombination("Shortcut+W"));
         closeItem.setOnAction(_ -> { if (activeTerminal != null) closeActive(findTabPane(activeTerminal), findStage(findTabPane(activeTerminal))); });
 
         var shellMenu = new Menu("Shell", null, newWindowItem, newTabItem, splitH, splitV, new SeparatorMenuItem(), closeItem);
@@ -198,15 +208,15 @@ public class jhostty extends Application {
 
         // View menu
         var zoomIn = new MenuItem("Zoom In");
-        zoomIn.setAccelerator(KeyCombination.keyCombination("Meta+Plus"));
+        zoomIn.setAccelerator(KeyCombination.keyCombination("Shortcut+Plus"));
         zoomIn.setOnAction(_ -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); });
 
         var zoomOut = new MenuItem("Zoom Out");
-        zoomOut.setAccelerator(KeyCombination.keyCombination("Meta+Minus"));
+        zoomOut.setAccelerator(KeyCombination.keyCombination("Shortcut+Minus"));
         zoomOut.setOnAction(_ -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); });
 
         var zoomReset = new MenuItem("Reset Zoom");
-        zoomReset.setAccelerator(KeyCombination.keyCombination("Meta+0"));
+        zoomReset.setAccelerator(KeyCombination.keyCombination("Shortcut+0"));
         zoomReset.setOnAction(_ -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, DEFAULT_SIZE); });
 
         // Theme submenu
@@ -239,31 +249,33 @@ public class jhostty extends Application {
     // --- Right-click Context Menu ---
 
     private static ContextMenu createContextMenu(TerminalView view) {
-        var newWindowItem = new MenuItem("New Window           \u2318N");
+        var sc = SHORTCUT_SYMBOL;
+        var sh = SHIFT_SYMBOL;
+        var newWindowItem = new MenuItem("New Window           " + sc + "N");
         newWindowItem.setOnAction(_ -> newWindow());
 
-        var newTabItem = new MenuItem("New Tab                 \u2318T");
+        var newTabItem = new MenuItem("New Tab                 " + sc + "T");
         newTabItem.setOnAction(_ -> newTab(findTabPane(view)));
 
-        var splitH = new MenuItem("Split Horizontal    \u2318D");
+        var splitH = new MenuItem("Split Horizontal    " + sc + "D");
         splitH.setOnAction(_ -> split(view, Orientation.VERTICAL));
 
-        var splitV = new MenuItem("Split Vertical        \u2318\u21E7D");
+        var splitV = new MenuItem("Split Vertical        " + sc + sh + "D");
         splitV.setOnAction(_ -> split(view, Orientation.HORIZONTAL));
 
-        var zoomIn = new MenuItem("Zoom In                 \u2318+");
+        var zoomIn = new MenuItem("Zoom In                 " + sc + "+");
         zoomIn.setOnAction(_ -> zoomTerminal(view, 1));
 
-        var zoomOut = new MenuItem("Zoom Out              \u2318\u2212");
+        var zoomOut = new MenuItem("Zoom Out              " + sc + "\u2212");
         zoomOut.setOnAction(_ -> zoomTerminal(view, -1));
 
-        var zoomReset = new MenuItem("Reset Zoom           \u23180");
+        var zoomReset = new MenuItem("Reset Zoom           " + sc + "0");
         zoomReset.setOnAction(_ -> setTerminalZoom(view, DEFAULT_SIZE));
 
-        var copy = new MenuItem("Copy                      \u2318C");
+        var copy = new MenuItem("Copy                      " + sc + "C");
         copy.setOnAction(_ -> view.copySelection());
 
-        var paste = new MenuItem("Paste                     \u2318V");
+        var paste = new MenuItem("Paste                     " + sc + "V");
         paste.setOnAction(_ -> view.pasteClipboard());
 
         return new ContextMenu(
@@ -389,6 +401,7 @@ public class jhostty extends Application {
     }
 
     private static void removeTerminal(TerminalView view, TabPane tabPane, Stage stage) {
+        if (!closingTerminals.add(view)) return; // guard against double-removal
         Thread.ofVirtual().name("jhostty-close").start(view::close);
 
         if (tabPane == null) tabPane = findTabPane(view);
@@ -495,7 +508,7 @@ public class jhostty extends Application {
                 var db = e.getDragboard();
                 if (db.hasFiles()) {
                     var paths = db.getFiles().stream()
-                            .map(f -> f.getAbsolutePath().contains(" ") ? "'" + f.getAbsolutePath() + "'" : f.getAbsolutePath())
+                            .map(f -> quotePath(f.getAbsolutePath()))
                             .toList();
                     view.sendText(String.join(" ", paths));
                 } else if (db.hasString()) {
@@ -726,9 +739,7 @@ public class jhostty extends Application {
     // --- Shell detection ---
 
     private static List<ShellOption> detectTerminals() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")
-                ? detectWindowsShells()
-                : detectUnixShells();
+        return IS_WINDOWS ? detectWindowsShells() : detectUnixShells();
     }
 
     private static List<ShellOption> detectWindowsShells() {
@@ -830,14 +841,10 @@ public class jhostty extends Application {
     }
 
     private static ThemeOption darkTheme(String name, String bg, String fg, List<String> palette, String sel, String cursorText) {
-        return buildTheme(name, bg, fg, palette, sel, cursorText);
+        return lightTheme(name, bg, fg, palette, sel, cursorText);
     }
 
     private static ThemeOption lightTheme(String name, String bg, String fg, List<String> palette, String sel, String cursorText) {
-        return buildTheme(name, bg, fg, palette, sel, cursorText);
-    }
-
-    private static ThemeOption buildTheme(String name, String bg, String fg, List<String> palette, String sel, String cursorText) {
         var fgColor = Color.web(fg);
         return new ThemeOption(name, new TerminalTheme(
                 Color.web(bg), fgColor,
@@ -846,6 +853,13 @@ public class jhostty extends Application {
                 fgColor.deriveColor(0, 1, 1, 0.45),
                 fgColor.deriveColor(0, 1, 1, 0.18),
                 fgColor.deriveColor(0, 1, 1, 0.35)));
+    }
+
+    /** Quote a file path for safe pasting into a shell. */
+    private static String quotePath(String path) {
+        if (!path.contains(" ") && !path.contains("'") && !path.contains("\"")) return path;
+        if (IS_WINDOWS) return "\"" + path.replace("\"", "\\\"") + "\"";
+        return "'" + path.replace("'", "'\\''" ) + "'";
     }
 
     // --- Font handling ---
