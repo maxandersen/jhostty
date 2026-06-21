@@ -119,6 +119,45 @@ Key design choices:
 - **Event filters** intercept shortcuts before the terminal view consumes them
 - **Dynamic CSS** — theme changes regenerate a temp CSS file and hot-reload it
 
+## Configuration
+
+jhostty automatically saves your preferences (theme, font, zoom, window position) to:
+
+```
+~/.config/jhostty/jhostty-state.properties
+```
+
+This file is auto-managed — changes you make in the app are saved on exit. To customize settings permanently, create your own override file:
+
+```
+~/.config/jhostty/jhostty.properties
+```
+
+User config takes priority over saved state. Omit a key or leave it blank to auto-detect / use the default.
+
+### Available settings
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `theme` | Theme name (e.g. `Dracula`, `Nord`, `Catppuccin Mocha`) | Ghostty Default |
+| `font` | Font family (e.g. `JetBrains Mono`) | Auto-detected |
+| `font-size` | Base font size in points — what "Reset Zoom" returns to | `15.0` |
+| `zoom` | Current zoom level in points — remembered across restarts | Same as `font-size` |
+| `shell` | Shell command (e.g. `/bin/zsh`) | Auto-detected |
+| `window-x` | Window X position in pixels | OS default |
+| `window-y` | Window Y position in pixels | OS default |
+
+### Example
+
+```properties
+# ~/.config/jhostty/jhostty.properties
+theme=Dracula
+font=JetBrains Mono
+font-size=16.0
+```
+
+Use **View → Reload Config** to apply changes without restarting.
+
 ## Font Recommendation
 
 For the best experience with nerd font glyphs (powerline symbols, git icons):

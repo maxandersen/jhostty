@@ -545,6 +545,73 @@
     </div>
   </section>
 
+  <!-- Configuration -->
+  <section id="config">
+    <h2>Configuration</h2>
+    <p class="section-sub">jhostty remembers your preferences automatically.</p>
+
+    <p>Your settings (theme, font, zoom, window position) are auto-saved to:</p>
+    <pre><code>~/.config/jhostty/jhostty-state.properties</code></pre>
+
+    <p style="margin-top: 1.5rem;">To customize settings permanently, create an override file:</p>
+    <pre><code>~/.config/jhostty/jhostty.properties</code></pre>
+    <p style="color: var(--text-muted); margin-top: 0.5rem;">User config takes priority. Omit a key to auto-detect.</p>
+
+    <table class="tech-table" style="margin-top: 2rem;">
+      <thead>
+        <tr>
+          <th>Key</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>theme</code></td>
+          <td>Theme name (e.g. <code>Dracula</code>, <code>Nord</code>)</td>
+          <td>Ghostty Default</td>
+        </tr>
+        <tr>
+          <td><code>font</code></td>
+          <td>Font family</td>
+          <td>Auto-detected</td>
+        </tr>
+        <tr>
+          <td><code>font-size</code></td>
+          <td>Base font size — what "Reset Zoom" returns to</td>
+          <td><code>15.0</code></td>
+        </tr>
+        <tr>
+          <td><code>zoom</code></td>
+          <td>Current zoom level — remembered across restarts</td>
+          <td>Same as <code>font-size</code></td>
+        </tr>
+        <tr>
+          <td><code>shell</code></td>
+          <td>Shell command</td>
+          <td>Auto-detected</td>
+        </tr>
+        <tr>
+          <td><code>window-x</code></td>
+          <td>Window X position (pixels)</td>
+          <td>OS default</td>
+        </tr>
+        <tr>
+          <td><code>window-y</code></td>
+          <td>Window Y position (pixels)</td>
+          <td>OS default</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin-top: 2rem;">Example</h3>
+    <pre><code># ~/.config/jhostty/jhostty.properties
+theme=Dracula
+font=JetBrains Mono
+font-size=16.0</code></pre>
+    <p style="color: var(--text-muted); margin-top: 0.5rem;">Use <strong>View → Reload Config</strong> to apply changes without restarting.</p>
+  </section>
+
   <!-- Under the hood -->
   <section id="tech">
     <h2>Under the Hood</h2>

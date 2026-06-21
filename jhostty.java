@@ -3,6 +3,7 @@
 //DEPS io.github.vlaaad:ghosttyfx:0.1.169
 //DEPS org.jetbrains.pty4j:pty4j:0.13.12
 //DEPS org.slf4j:slf4j-nop:2.0.13
+//DEPS io.smallrye.config:smallrye-config:3.12.4
 //RUNTIME_OPTIONS --enable-native-access=ALL-UNNAMED --enable-native-access=javafx.graphics
 
 import java.lang.foreign.*;
@@ -23,6 +24,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,9 +62,19 @@ public class jhostty extends Application {
     private static final double DEFAULT_SIZE = 15.0;
     private static final String ZOOM_KEY = "jhostty.fontSize";
     private static final String WINDOW_KEY = "jhostty.window";
+
     private static final Set<TerminalView> closingTerminals = ConcurrentHashMap.newKeySet();
     private static String currentFontFamily;
+    private static String currentThemeName;
     private static TerminalTheme currentTheme;
+    private static double baseFontSize = DEFAULT_SIZE;  // from config, what "reset zoom" returns to
+    private static double currentZoom = DEFAULT_SIZE;    // actual size for new terminals, saved to state
+    private static Path configDir;
+    private static double savedWindowX = Double.NaN; // NaN = let OS decide
+    private static double savedWindowY = Double.NaN;
+    // Auto-detected defaults (for comparison when saving)
+    private static String detectedFontFamily;
+    private static List<String> detectedShellCommand;
     private static TerminalView activeTerminal;
     private static Path cwd;
     private static List<String> shellCommand;
@@ -79,6 +91,7 @@ public class jhostty extends Application {
             e.printStackTrace();
         });
         debug = List.of(args).contains("--debug");
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> saveState(), "jhostty-shutdown"));
         Application.launch(jhostty.class, args);
     }
 
@@ -89,13 +102,22 @@ public class jhostty extends Application {
     @Override
     public void start(Stage _ignored) {
         cwd = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
-        currentFontFamily = defaultFontFamily();
+        configDir = resolveConfigDir();
+
+        // Detect defaults
+        detectedFontFamily = defaultFontFamily();
+        currentFontFamily = detectedFontFamily;
+        currentThemeName = "Ghostty Default";
         currentTheme = themes().getFirst().theme();
 
         var shells = detectTerminals();
-        shellCommand = shells.isEmpty()
+        detectedShellCommand = shells.isEmpty()
                 ? List.of(IS_WINDOWS ? "cmd.exe" : "/bin/sh")
                 : shells.getFirst().command();
+        shellCommand = detectedShellCommand;
+
+        // Load config (overrides defaults)
+        loadConfig();
         System.err.println("[jhostty] shell: " + shellCommand);
 
         // Shared CSS
@@ -139,6 +161,8 @@ public class jhostty extends Application {
         stage.setScene(scene);
         stage.setOnCloseRequest(_ -> closeAllTerminalsIn(tabs));
         stage.setOnHidden(_ -> {
+            savedWindowX = stage.getX();
+            savedWindowY = stage.getY();
             windows.remove(stage);
             windowMenus.removeIf(m -> m.getParentMenu() == null && m.getParentPopup() == null);
             rebuildWindowMenus();
@@ -160,7 +184,7 @@ public class jhostty extends Application {
                 case W -> { closeActive(tabs, stage); e.consume(); }
                 case EQUALS, PLUS, ADD -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); e.consume(); }
                 case MINUS, SUBTRACT -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); e.consume(); }
-                case DIGIT0, NUMPAD0 -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, DEFAULT_SIZE); e.consume(); }
+                case DIGIT0, NUMPAD0 -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); e.consume(); }
                 default -> {}
             }
         });
@@ -194,6 +218,8 @@ public class jhostty extends Application {
             }
         });
 
+        if (!Double.isNaN(savedWindowX)) stage.setX(savedWindowX);
+        if (!Double.isNaN(savedWindowY)) stage.setY(savedWindowY);
         windows.add(stage);
         stage.show();
         rebuildWindowMenus();
@@ -242,7 +268,7 @@ public class jhostty extends Application {
 
         var zoomReset = new MenuItem("Reset Zoom");
         zoomReset.setAccelerator(KeyCombination.keyCombination("Shortcut+0"));
-        zoomReset.setOnAction(_ -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, DEFAULT_SIZE); });
+        zoomReset.setOnAction(_ -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); });
 
         // Theme submenu
         var themeToggle = new ToggleGroup();
@@ -251,7 +277,7 @@ public class jhostty extends Application {
             var item = new RadioMenuItem(t.label());
             item.setToggleGroup(themeToggle);
             if (t.theme().equals(currentTheme)) item.setSelected(true);
-            item.setOnAction(_ -> { currentTheme = t.theme(); applyThemeToAll(); });
+            item.setOnAction(_ -> { currentThemeName = t.label(); currentTheme = t.theme(); applyThemeToAll(); saveState(); });
             themeMenu.getItems().add(item);
         }
 
@@ -262,11 +288,23 @@ public class jhostty extends Application {
             var item = new RadioMenuItem(f.family());
             item.setToggleGroup(fontToggle);
             if (f.family().equals(currentFontFamily)) item.setSelected(true);
-            item.setOnAction(_ -> { currentFontFamily = f.family(); applyFontToAll(); });
+            item.setOnAction(_ -> { currentFontFamily = f.family(); applyFontToAll(); saveState(); });
             fontMenu.getItems().add(item);
         }
 
-        var viewMenu = new Menu("View", null, zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu);
+        var reloadConfig = new MenuItem("Reload Config");
+        reloadConfig.setOnAction(_ -> {
+            loadConfig();
+            applyThemeToAll();
+            // Apply new zoom/font to all terminals
+            forEachTerminal(v -> {
+                v.getProperties().put(ZOOM_KEY, currentZoom);
+                v.setFont(resolveFont(currentFontFamily, currentZoom));
+            });
+            updateTitle();
+        });
+
+        var viewMenu = new Menu("View", null, zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu, new SeparatorMenuItem(), reloadConfig);
 
         return new MenuBar(shellMenu, viewMenu, windowMenu);
     }
@@ -295,7 +333,7 @@ public class jhostty extends Application {
         zoomOut.setOnAction(_ -> zoomTerminal(view, -1));
 
         var zoomReset = new MenuItem("Reset Zoom           " + sc + "0");
-        zoomReset.setOnAction(_ -> setTerminalZoom(view, DEFAULT_SIZE));
+        zoomReset.setOnAction(_ -> setTerminalZoom(view, baseFontSize));
 
         var copy = new MenuItem("Copy                      " + sc + "C");
         copy.setOnAction(_ -> view.copySelection());
@@ -491,8 +529,8 @@ public class jhostty extends Application {
                 var launcher = Shell.integrate(shellCommand, System.getenv());
                 return new PtyTerminal(launcher.command(), cwd, launcher.environment(), columns, rows);
             });
-            view.getProperties().put(ZOOM_KEY, DEFAULT_SIZE);
-            view.setFont(resolveFont(currentFontFamily, DEFAULT_SIZE));
+            view.getProperties().put(ZOOM_KEY, currentZoom);
+            view.setFont(resolveFont(currentFontFamily, currentZoom));
             view.setTheme(currentTheme);
 
             // Track active terminal on focus
@@ -560,7 +598,7 @@ public class jhostty extends Application {
 
     private static double getTerminalSize(TerminalView v) {
         var s = v.getProperties().get(ZOOM_KEY);
-        return s instanceof Double d ? d : DEFAULT_SIZE;
+        return s instanceof Double d ? d : currentZoom;
     }
 
     private static void zoomTerminal(TerminalView v, double delta) {
@@ -573,11 +611,14 @@ public class jhostty extends Application {
     private static void setTerminalZoom(TerminalView v, double size) {
         v.getProperties().put(ZOOM_KEY, size);
         v.setFont(resolveFont(currentFontFamily, size));
+        currentZoom = size;
         updateTitle();
+        saveState();
     }
 
     private static void applyFontToAll() {
         forEachTerminal(v -> v.setFont(resolveFont(currentFontFamily, getTerminalSize(v))));
+        updateTitle();
         updateTitle();
     }
 
@@ -586,7 +627,7 @@ public class jhostty extends Application {
         var stg = findStageFor(activeTerminal);
         if (stg == null) return;
         var base = activeTerminal.getTitle() != null ? activeTerminal.getTitle() : "jhostty";
-        var pct = Math.round(getTerminalSize(activeTerminal) / DEFAULT_SIZE * 100);
+        var pct = Math.round(getTerminalSize(activeTerminal) / baseFontSize * 100);
         stg.setTitle(pct == 100 ? base : base + " (" + pct + "%)");
     }
 
@@ -732,7 +773,6 @@ public class jhostty extends Application {
 
     static final class PtyTerminal implements Terminal {
         private final PtyProcess process;
-
         PtyTerminal(List<String> command, Path cwd, Map<String, String> env, int columns, int rows) throws IOException {
             process = (PtyProcess) new PtyProcessBuilder()
                     .setCommand(command.toArray(String[]::new))
@@ -883,6 +923,124 @@ public class jhostty extends Application {
                 fgColor.deriveColor(0, 1, 1, 0.35)));
     }
 
+    // --- Config (Pkl) ---
+
+    private static Path resolveConfigDir() {
+        var xdg = System.getenv("XDG_CONFIG_HOME");
+        var base = (xdg != null && !xdg.isBlank()) ? Path.of(xdg) : Path.of(System.getProperty("user.home"), ".config");
+        return base.resolve("jhostty");
+    }
+
+    private static void loadConfig() {
+        var stateFile = configDir.resolve("jhostty-state.properties");
+        var userFile = configDir.resolve("jhostty.properties");
+        var hasState = Files.isRegularFile(stateFile);
+        var hasUser = Files.isRegularFile(userFile);
+        if (!hasState && !hasUser) {
+            debug("no config found in " + configDir);
+            return;
+        }
+        try {
+            var builder = new io.smallrye.config.SmallRyeConfigBuilder();
+            // State file at lower ordinal, user file at higher (wins)
+            if (hasState) {
+                debug("loading state: " + stateFile);
+                builder.withSources(new io.smallrye.config.PropertiesConfigSource(stateFile.toUri().toURL(), 100));
+            }
+            if (hasUser) {
+                debug("loading user config: " + userFile);
+                builder.withSources(new io.smallrye.config.PropertiesConfigSource(userFile.toUri().toURL(), 200));
+            }
+            var config = builder.build();
+
+            // Reset to defaults, then apply what's in config
+            currentThemeName = "Ghostty Default";
+            currentFontFamily = detectedFontFamily;
+            baseFontSize = DEFAULT_SIZE;
+            currentZoom = DEFAULT_SIZE;
+            shellCommand = detectedShellCommand;
+            savedWindowX = Double.NaN;
+            savedWindowY = Double.NaN;
+
+            config.getOptionalValue("theme", String.class).filter(s -> !s.isBlank()).ifPresent(v -> currentThemeName = v);
+            config.getOptionalValue("font", String.class).filter(s -> !s.isBlank()).ifPresent(v -> currentFontFamily = v);
+            config.getOptionalValue("font-size", Double.class).ifPresent(v -> { baseFontSize = v; currentZoom = v; });
+            config.getOptionalValue("zoom", Double.class).ifPresent(v -> currentZoom = v);
+            config.getOptionalValue("shell", String.class).filter(s -> !s.isBlank()).ifPresent(v -> shellCommand = List.of(v.split("\\s+")));
+            config.getOptionalValue("window-x", Double.class).ifPresent(v -> savedWindowX = v);
+            config.getOptionalValue("window-y", Double.class).ifPresent(v -> savedWindowY = v);
+
+            // Resolve theme name to TerminalTheme
+            for (var t : themes()) {
+                if (t.label().equals(currentThemeName)) {
+                    currentTheme = t.theme();
+                    break;
+                }
+            }
+            debug("config loaded: theme=" + currentThemeName + " font=" + currentFontFamily + " fontSize=" + baseFontSize + " zoom=" + currentZoom);
+        } catch (Exception e) {
+            System.err.println("[jhostty] failed to load config: " + e.getMessage());
+        }
+    }
+
+    private static void appendProp(StringBuilder sb, String key, String current, String defaultVal) {
+        if (current != null && !current.equals(defaultVal)) {
+            sb.append(key).append('=').append(current).append('\n');
+        } else {
+            sb.append("# ").append(key).append('=').append('\n');
+        }
+    }
+
+    private static void appendProp(StringBuilder sb, String key, double current, double defaultVal) {
+        if (current != defaultVal) {
+            sb.append(key).append('=').append(current).append('\n');
+        } else {
+            sb.append("# ").append(key).append('=').append('\n');
+        }
+    }
+
+    private static void appendProp(StringBuilder sb, String key, double current) {
+        if (!Double.isNaN(current)) {
+            sb.append(key).append('=').append(Math.round(current)).append('\n');
+        } else {
+            sb.append("# ").append(key).append('=').append('\n');
+        }
+    }
+
+
+
+    private static void saveState() {
+        if (configDir == null) return;
+        // Capture position from first open window if available
+        if (!windows.isEmpty()) {
+            var w = windows.getFirst();
+            savedWindowX = w.getX();
+            savedWindowY = w.getY();
+        }
+        try {
+            Files.createDirectories(configDir);
+            var stateFile = configDir.resolve("jhostty-state.properties");
+            var sb = new StringBuilder();
+            sb.append("# Auto-saved by jhostty \u2014 do not edit.\n");
+            sb.append("# Create jhostty.properties to override (higher priority).\n");
+            sb.append("# Omit a key or leave blank to auto-detect / use default.\n");
+            appendProp(sb, "theme", currentThemeName, "Ghostty Default");
+            appendProp(sb, "font", currentFontFamily, detectedFontFamily);
+            appendProp(sb, "font-size", baseFontSize, DEFAULT_SIZE);
+            appendProp(sb, "zoom", currentZoom, baseFontSize);
+            appendProp(sb, "shell", String.join(" ", shellCommand), String.join(" ", detectedShellCommand));
+            // window-width and window-height are user-config only, not auto-saved
+            appendProp(sb, "window-x", savedWindowX);
+            appendProp(sb, "window-y", savedWindowY);
+            // Atomic write
+            var tmp = Files.createTempFile(configDir, "jhostty-state", ".tmp");
+            Files.writeString(tmp, sb.toString());
+            Files.move(tmp, stateFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            debug("state saved: " + stateFile);
+        } catch (IOException e) {
+            System.err.println("[jhostty] failed to save state: " + e.getMessage());
+        }
+    }
     /** Quote a file path for safe pasting into a shell. */
     private static String quotePath(String path) {
         if (!path.contains(" ") && !path.contains("'") && !path.contains("\"")) return path;
