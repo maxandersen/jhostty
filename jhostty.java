@@ -22,6 +22,6 @@
 //SOURCES src/dk/xam/themes/ThemeRegistry.java
 //FILES themes/builtin-themes.json=themes/builtin-themes.json
 //FILES icon.png=screenshots/icon.png
-//RUNTIME_OPTIONS --enable-native-access=ALL-UNNAMED --enable-native-access=javafx.graphics -Djavafx.enablePreview=true -Djavafx.suppressPreviewWarning=true
+//RUNTIME_OPTIONS --enable-native-access=ALL-UNNAMED --enable-native-access=javafx.graphics -Djavafx.enablePreview=true -Djavafx.suppressPreviewWarning=true -Xms32m -Xmx512m
 //COMPILE_OPTIONS -Xlint:deprecation -Xlint:unchecked
 //MAIN dk.xam.jhostty.JHostty
