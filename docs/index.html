@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>jhostty — Probably the most portable terminal in the world</title>
+  <meta name="description" content="A full-featured terminal emulator in a single Java file, powered by GhosttyFX. No build system, no IDE — just JBang and one file.">
+  <meta property="og:title" content="jhostty — Portable Terminal Emulator">
+  <meta property="og:description" content="A full-featured terminal emulator in a single Java file, powered by GhosttyFX.">
+  <meta property="og:image" content="https://raw.githubusercontent.com/maxandersen/jhostty/main/screenshots/main.png">
+  <meta property="og:url" content="https://jhostty.xam.dk">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="screenshots/logo.png" type="image/png">
+  <style>
+    :root {
+      --bg: #1a1b26;
+      --bg-alt: #24283b;
+      --bg-card: #1f2335;
+      --text: #c0caf5;
+      --text-muted: #565f89;
+      --accent: #e0a526;
+      --accent-dim: #e0a52633;
+      --green: #9ece6a;
+      --blue: #7aa2f7;
+      --border: #292e42;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Header */
+    .hero {
+      text-align: center;
+      padding: 5rem 1.5rem 3rem;
+      background: linear-gradient(180deg, var(--bg-alt) 0%, var(--bg) 100%);
+    }
+
+    .hero img.logo {
+      width: 140px;
+      height: 140px;
+      border-radius: 24px;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero h1 {
+      font-size: 3rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+    }
+
+    .hero .tagline {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      font-style: italic;
+      margin-bottom: 1.5rem;
+    }
+
+    .badges {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 2rem;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+    }
+
+    .badge.java { color: #f97316; border-color: #f9731633; }
+    .badge.ghostty { color: var(--blue); border-color: #7aa2f733; }
+    .badge.platforms { color: var(--green); border-color: #9ece6a33; }
+    .badge.lines { color: var(--text-muted); }
+
+    .hero-description {
+      max-width: 640px;
+      margin: 0 auto 2.5rem;
+      font-size: 1.1rem;
+      color: var(--text);
+    }
+
+    .hero-description a { color: var(--blue); }
+
+    /* Install block */
+    .install-block {
+      max-width: 520px;
+      margin: 0 auto 1rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .install-block .tab-bar {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .install-block .tab {
+      flex: 1;
+      padding: 0.5rem 1rem;
+      text-align: center;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .install-block .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .install-block .tab:hover {
+      color: var(--text);
+    }
+
+    .install-panel {
+      display: none;
+      padding: 1.25rem;
+    }
+
+    .install-panel.active { display: block; }
+
+    .code-line {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.5rem;
+      font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.9rem;
+      position: relative;
+    }
+
+    .code-line:last-child { margin-bottom: 0; }
+
+    .code-line .prompt {
+      color: var(--text-muted);
+      user-select: none;
+    }
+
+    .code-line code {
+      color: var(--green);
+      flex: 1;
+    }
+
+    .code-line .copy-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.25rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+
+    .code-line .copy-btn:hover { color: var(--accent); }
+
+    .install-note {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.75rem;
+    }
+
+    .cta-row {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin-top: 2rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--bg);
+    }
+
+    .btn-primary:hover {
+      background: #c99020;
+      text-decoration: none;
+    }
+
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      text-decoration: none;
+    }
+
+    /* Hero screenshot */
+    .hero-screenshot {
+      max-width: 800px;
+      margin: 3rem auto 0;
+      padding: 0 1.5rem;
+    }
+
+    .hero-screenshot img {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    }
+
+    /* Sections */
+    section {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 5rem 1.5rem;
+    }
+
+    section h2 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    section .section-sub {
+      color: var(--text-muted);
+      margin-bottom: 3rem;
+      font-size: 1.05rem;
+    }
+
+    /* Feature grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      transition: border-color 0.2s;
+    }
+
+    .feature-card:hover {
+      border-color: var(--accent-dim);
+    }
+
+    .feature-card .emoji {
+      font-size: 1.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .feature-card h3 {
+      font-size: 1.1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    /* Gallery */
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .gallery-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .gallery-item:hover {
+      border-color: var(--accent-dim);
+    }
+
+    .gallery-item img {
+      width: 100%;
+      display: block;
+    }
+
+    .gallery-item .caption {
+      padding: 1rem 1.25rem;
+    }
+
+    .gallery-item .caption h3 {
+      font-size: 1rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .gallery-item .caption p {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    /* Tech section */
+    .tech-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1.5rem;
+    }
+
+    .tech-table th,
+    .tech-table td {
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tech-table th {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .tech-table td { font-size: 0.95rem; }
+    .tech-table td code {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--blue);
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    footer a { color: var(--text-muted); }
+    footer a:hover { color: var(--accent); }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 2rem; }
+      .hero .tagline { font-size: 1rem; }
+      .cta-row { flex-direction: column; align-items: center; }
+      .gallery { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Hero -->
+  <div class="hero">
+    <img class="logo" src="screenshots/logo.png" alt="jhostty logo">
+    <h1>jhostty</h1>
+    <p class="tagline">Probably the most portable terminal in the world</p>
+
+    <div class="badges">
+      <span class="badge java">Java 25</span>
+      <span class="badge ghostty">GhosttyFX 0.1.169</span>
+      <span class="badge platforms">macOS · Windows · Linux</span>
+      <span class="badge lines">~940 lines</span>
+    </div>
+
+    <p class="hero-description">
+      A full-featured terminal emulator in a <strong>single Java file</strong>, powered by
+      <a href="https://github.com/vlaaad/ghosttyfx">GhosttyFX</a> — Ghostty's terminal engine
+      exposed as a JavaFX control. No build system, no IDE, no project setup — just
+      <a href="https://jbang.dev">JBang</a> and one file.
+    </p>
+
+    <!-- Install -->
+    <div class="install-block">
+      <div class="tab-bar">
+        <button class="tab active" onclick="showTab('run')">Run instantly</button>
+        <button class="tab" onclick="showTab('install')">Install</button>
+        <button class="tab" onclick="showTab('source')">From source</button>
+      </div>
+      <div id="panel-run" class="install-panel active">
+        <div class="code-line">
+          <span class="prompt">$</span>
+          <code>jbang jhostty@maxandersen</code>
+          <button class="copy-btn" onclick="copyCmd(this, 'jbang jhostty@maxandersen')" title="Copy">📋</button>
+        </div>
+        <p class="install-note">JBang downloads Java 25 automatically if needed.</p>
+      </div>
+      <div id="panel-install" class="install-panel">
+        <div class="code-line">
+          <span class="prompt">$</span>
+          <code>jbang app install jhostty@maxandersen</code>
+          <button class="copy-btn" onclick="copyCmd(this, 'jbang app install jhostty@maxandersen')" title="Copy">📋</button>
+        </div>
+        <div class="code-line">
+          <span class="prompt">$</span>
+          <code>jhostty</code>
+          <button class="copy-btn" onclick="copyCmd(this, 'jhostty')" title="Copy">📋</button>
+        </div>
+      </div>
+      <div id="panel-source" class="install-panel">
+        <div class="code-line">
+          <span class="prompt">$</span>
+          <code>git clone https://github.com/maxandersen/jhostty.git</code>
+          <button class="copy-btn" onclick="copyCmd(this, 'git clone https://github.com/maxandersen/jhostty.git')" title="Copy">📋</button>
+        </div>
+        <div class="code-line">
+          <span class="prompt">$</span>
+          <code>cd jhostty && jbang jhostty.java</code>
+          <button class="copy-btn" onclick="copyCmd(this, 'cd jhostty && jbang jhostty.java')" title="Copy">📋</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="cta-row">
+      <a href="https://github.com/maxandersen/jhostty" class="btn btn-primary">
+        ⭐ View on GitHub
+      </a>
+      <a href="#features" class="btn btn-secondary">
+        See features ↓
+      </a>
+    </div>
+
+    <div class="hero-screenshot">
+      <img src="screenshots/main.png" alt="jhostty terminal window">
+    </div>
+  </div>
+
+  <!-- Features -->
+  <section id="features">
+    <h2>Features</h2>
+    <p class="section-sub">Everything you'd expect from a real terminal — in one file.</p>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="emoji">🪟</div>
+        <h3>Windows, Tabs &amp; Splits</h3>
+        <p>Open multiple windows, tabs, and split panes. Horizontal and vertical splits nest freely.</p>
+      </div>
+      <div class="feature-card">
+        <div class="emoji">🎨</div>
+        <h3>10 Built-in Themes</h3>
+        <p>Switch themes on the fly — the entire UI adapts, including context menus and split dividers.</p>
+      </div>
+      <div class="feature-card">
+        <div class="emoji">🔍</div>
+        <h3>Per-Terminal Zoom</h3>
+        <p>Each split pane has independent zoom. Use keyboard shortcuts, scroll wheel, or trackpad pinch.</p>
+      </div>
+      <div class="feature-card">
+        <div class="emoji">🔤</div>
+        <h3>All System Fonts</h3>
+        <p>Every font on your system is available. Popular terminal fonts are listed first for quick access.</p>
+      </div>
+      <div class="feature-card">
+        <div class="emoji">📂</div>
+        <h3>Drag &amp; Drop</h3>
+        <p>Drop files, text, or URLs onto any terminal pane. They're pasted as paths or content.</p>
+      </div>
+      <div class="feature-card">
+        <div class="emoji">🔗</div>
+        <h3>Link Detection</h3>
+        <p>Clickable URLs in terminal output. Hover to see the hand cursor, click to open.</p>
+      </div>
+      <div class="feature-card">
+        <div class="emoji">🍎</div>
+        <h3>Native Feel</h3>
+        <p>macOS system menu bar, cross-platform shortcuts (⌘/Ctrl), styled right-click context menus.</p>
+      </div>
+      <div class="feature-card">
+        <div class="emoji">🐚</div>
+        <h3>Shell Integration</h3>
+        <p>Search (⌘F/Ctrl+F) and prompt navigation via Ghostty's shell integration.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Gallery -->
+  <section id="gallery">
+    <h2>Screenshots</h2>
+    <p class="section-sub">See it in action.</p>
+
+    <div class="gallery">
+      <div class="gallery-item">
+        <img src="screenshots/splits.png" alt="Split panes" loading="lazy">
+        <div class="caption">
+          <h3>Split Panes</h3>
+          <p>Horizontal and vertical splits, nested freely.</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="screenshots/tabs.png" alt="Tabs" loading="lazy">
+        <div class="caption">
+          <h3>Tabs</h3>
+          <p>Tab bar appears with multiple tabs, hides when back to one.</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="screenshots/themes.png" alt="Themes" loading="lazy">
+        <div class="caption">
+          <h3>Themes</h3>
+          <p>10 built-in themes, switchable from the View menu.</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="screenshots/zoom-levels.png" alt="Zoom levels" loading="lazy">
+        <div class="caption">
+          <h3>Per-Terminal Zoom</h3>
+          <p>Independent zoom per pane. Title bar shows zoom percentage.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Under the hood -->
+  <section id="tech">
+    <h2>Under the Hood</h2>
+    <p class="section-sub">Minimal dependencies, maximum capability.</p>
+
+    <table class="tech-table">
+      <thead>
+        <tr>
+          <th>Dependency</th>
+          <th>Version</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ghosttyfx</code></td>
+          <td>0.1.169</td>
+          <td>Terminal control — pulls in JavaFX transitively</td>
+        </tr>
+        <tr>
+          <td><code>pty4j</code></td>
+          <td>0.13.12</td>
+          <td>PTY backend for shell interaction</td>
+        </tr>
+        <tr>
+          <td><code>slf4j-nop</code></td>
+          <td>2.0.13</td>
+          <td>Silence SLF4J warnings</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="margin-top: 2rem; color: var(--text-muted);">
+      Built with <a href="https://jbang.dev">JBang</a> — no Maven, no Gradle, no build system.
+      Just <code>jbang jhostty.java</code> and you're running.
+    </p>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <p>
+      <a href="https://github.com/maxandersen/jhostty">GitHub</a> ·
+      <a href="https://github.com/vlaaad/ghosttyfx">GhosttyFX</a> ·
+      <a href="https://jbang.dev">JBang</a>
+    </p>
+    <p style="margin-top: 0.5rem;">Made by <a href="https://github.com/maxandersen">Max Rydahl Andersen</a></p>
+  </footer>
+
+  <script>
+    function showTab(name) {
+      document.querySelectorAll('.install-block .tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.install-panel').forEach(p => p.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('panel-' + name).classList.add('active');
+    }
+
+    function copyCmd(btn, text) {
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = '✅';
+        setTimeout(() => btn.textContent = '📋', 1500);
+      });
+    }
+  </script>
+</body>
+</html>
