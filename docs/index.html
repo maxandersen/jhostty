@@ -254,6 +254,27 @@
       margin-bottom: 0.5rem;
     }
 
+    section h2 a.anchor,
+    section h3 a.anchor {
+      color: var(--text-muted);
+      text-decoration: none;
+      opacity: 0;
+      margin-left: 0.3em;
+      font-size: 0.7em;
+      transition: opacity 0.15s;
+    }
+
+    section h2:hover a.anchor,
+    section h3:hover a.anchor {
+      opacity: 0.6;
+    }
+
+    section h2 a.anchor:hover,
+    section h3 a.anchor:hover {
+      opacity: 1;
+      color: var(--accent);
+    }
+
     section .section-sub {
       color: var(--text-muted);
       margin-bottom: 3rem;
@@ -461,7 +482,7 @@
 
   <!-- Features -->
   <section id="features">
-    <h2>Features</h2>
+    <h2>Features <a href="#features" class="anchor">#</a></h2>
     <p class="section-sub">Everything you'd expect from a real terminal — in one file.</p>
 
     <div class="features-grid">
@@ -510,7 +531,7 @@
 
   <!-- Gallery -->
   <section id="gallery">
-    <h2>Screenshots</h2>
+    <h2>Screenshots <a href="#gallery" class="anchor">#</a></h2>
     <p class="section-sub">See it in action.</p>
 
     <div class="gallery">
@@ -547,7 +568,7 @@
 
   <!-- Configuration -->
   <section id="config">
-    <h2>Configuration</h2>
+    <h2>Configuration <a href="#config" class="anchor">#</a></h2>
     <p class="section-sub">jhostty remembers your preferences automatically.</p>
 
     <p>Your settings (theme, font, zoom, window position) are auto-saved to:</p>
@@ -614,7 +635,7 @@ font-size=16.0</code></pre>
 
   <!-- Under the hood -->
   <section id="tech">
-    <h2>Under the Hood</h2>
+    <h2>Under the Hood <a href="#tech" class="anchor">#</a></h2>
     <p class="section-sub">Minimal dependencies, maximum capability.</p>
 
     <table class="tech-table">
