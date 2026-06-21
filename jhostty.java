@@ -1,0 +1,914 @@
+///usr/bin/env jbang "$0" "$@" ; exit $?
+//JAVA 25
+//DEPS io.github.vlaaad:ghosttyfx:0.1.169
+//DEPS org.jetbrains.pty4j:pty4j:0.13.12
+//DEPS org.slf4j:slf4j-nop:2.0.13
+//RUNTIME_OPTIONS --enable-native-access=ALL-UNNAMED --enable-native-access=javafx.graphics
+
+import java.lang.foreign.*;
+
+import com.pty4j.PtyProcess;
+import com.pty4j.PtyProcessBuilder;
+import com.pty4j.WinSize;
+import io.github.vlaaad.ghosttyfx.Shell;
+import io.github.vlaaad.ghosttyfx.Terminal;
+import io.github.vlaaad.ghosttyfx.TerminalState;
+import io.github.vlaaad.ghosttyfx.TerminalTheme;
+import io.github.vlaaad.ghosttyfx.TerminalView;
+
+// (java.lang.foreign.* imported above for macOS app name)
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import javafx.application.Platform;
+import javafx.geometry.Orientation;
+import javafx.scene.Node;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.input.DragEvent;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyCombination;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.input.ScrollEvent;
+import javafx.scene.input.TransferMode;
+import javafx.scene.input.ZoomEvent;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
+import javafx.stage.Stage;
+
+public class jhostty {
+
+    private static final double DEFAULT_SIZE = 15.0;
+    private static final String ZOOM_KEY = "jhostty.fontSize";
+    private static final String WINDOW_KEY = "jhostty.window";
+    private static String currentFontFamily;
+    private static TerminalTheme currentTheme;
+    private static TerminalView activeTerminal;
+    private static Path cwd;
+    private static List<String> shellCommand;
+    private static Path cssPath;
+    private static String cssUrl;
+    private static final List<Stage> windows = new ArrayList<>();
+    private static final List<Menu> windowMenus = new ArrayList<>();
+
+    public static void main(String[] args) {
+        Platform.startup(() -> {
+            cwd = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
+            currentFontFamily = defaultFontFamily();
+            currentTheme = themes().getFirst().theme();
+
+            var shells = detectTerminals();
+            shellCommand = shells.isEmpty() ? List.of("/bin/sh") : shells.getFirst().command();
+
+            // Shared CSS
+            try {
+                cssPath = Files.createTempFile("jhostty", ".css");
+                cssPath.toFile().deleteOnExit();
+                cssUrl = cssPath.toUri().toString();
+                writeCss();
+            } catch (IOException _) {}
+
+            newWindow();
+            Platform.runLater(() -> setMacAppName("jhostty"));
+        });
+    }
+
+    private static Stage newWindow() {
+        var tabs = new TabPane();
+        tabs.getStyleClass().add("jhostty-tabs");
+
+        var menuBar = createMenuBar(tabs);
+        menuBar.setUseSystemMenuBar(true);
+        menuBar.setMaxHeight(0);
+        menuBar.setPrefHeight(0);
+        menuBar.setMinHeight(0);
+
+        var root = new BorderPane();
+        root.setTop(menuBar);
+        root.setCenter(tabs);
+
+        var scene = new Scene(root, 1000, 700);
+        if (cssUrl != null) scene.getStylesheets().add(cssUrl);
+
+        updateTabBarVisibility(tabs);
+        tabs.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) _ -> updateTabBarVisibility(tabs));
+
+        var stage = new Stage();
+        stage.setTitle("jhostty");
+        stage.setScene(scene);
+        stage.setOnCloseRequest(_ -> closeAllTerminalsIn(tabs));
+        stage.setOnHidden(_ -> {
+            windows.remove(stage);
+            windowMenus.removeIf(m -> m.getParentMenu() == null && m.getParentPopup() == null);
+            rebuildWindowMenus();
+            if (windows.isEmpty()) Platform.exit();
+        });
+
+        // Key shortcuts — event filter to intercept before TerminalView
+        scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (!e.isMetaDown()) return;
+            switch (e.getCode()) {
+                case N -> { newWindow(); e.consume(); }
+                case T -> { newTab(tabs); e.consume(); }
+                case D -> { if (e.isShiftDown()) splitActive(Orientation.HORIZONTAL); else splitActive(Orientation.VERTICAL); e.consume(); }
+                case W -> { closeActive(tabs, stage); e.consume(); }
+                case EQUALS, PLUS, ADD -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); e.consume(); }
+                case MINUS, SUBTRACT -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); e.consume(); }
+                case DIGIT0, NUMPAD0 -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, DEFAULT_SIZE); e.consume(); }
+                default -> {}
+            }
+        });
+
+        scene.addEventFilter(ScrollEvent.SCROLL, e -> {
+            if (e.isMetaDown() || e.isControlDown()) {
+                var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
+                if (target == null) target = activeTerminal;
+                if (target != null) { zoomTerminal(target, e.getDeltaY() > 0 ? 1 : -1); e.consume(); }
+            }
+        });
+        scene.addEventFilter(ZoomEvent.ZOOM, e -> {
+            if (e.isMetaDown() || e.isControlDown()) {
+                var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
+                if (target == null) target = activeTerminal;
+                if (target != null) { zoomTerminal(target, e.getZoomFactor() > 1 ? 1 : -1); e.consume(); }
+            }
+        });
+
+        windows.add(stage);
+        stage.show();
+        rebuildWindowMenus();
+        newTab(tabs);
+        return stage;
+    }
+
+    // --- Menu Bar ---
+
+    private static MenuBar createMenuBar(TabPane tabs) {
+        // Shell menu
+        var newWindowItem = new MenuItem("New Window");
+        newWindowItem.setAccelerator(KeyCombination.keyCombination("Meta+N"));
+        newWindowItem.setOnAction(_ -> newWindow());
+
+        var newTabItem = new MenuItem("New Tab");
+        newTabItem.setAccelerator(KeyCombination.keyCombination("Meta+T"));
+        newTabItem.setOnAction(_ -> newTab(tabs));
+
+        var splitH = new MenuItem("Split Horizontal");
+        splitH.setAccelerator(KeyCombination.keyCombination("Meta+D"));
+        splitH.setOnAction(_ -> splitActive(Orientation.VERTICAL));
+
+        var splitV = new MenuItem("Split Vertical");
+        splitV.setAccelerator(KeyCombination.keyCombination("Meta+Shift+D"));
+        splitV.setOnAction(_ -> splitActive(Orientation.HORIZONTAL));
+
+        var closeItem = new MenuItem("Close Terminal");
+        closeItem.setAccelerator(KeyCombination.keyCombination("Meta+W"));
+        closeItem.setOnAction(_ -> { if (activeTerminal != null) closeActive(findTabPane(activeTerminal), findStage(findTabPane(activeTerminal))); });
+
+        var shellMenu = new Menu("Shell", null, newWindowItem, newTabItem, splitH, splitV, new SeparatorMenuItem(), closeItem);
+
+        // Window menu
+        var windowMenu = new Menu("Window");
+        windowMenus.add(windowMenu);
+
+        // View menu
+        var zoomIn = new MenuItem("Zoom In");
+        zoomIn.setAccelerator(KeyCombination.keyCombination("Meta+Plus"));
+        zoomIn.setOnAction(_ -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); });
+
+        var zoomOut = new MenuItem("Zoom Out");
+        zoomOut.setAccelerator(KeyCombination.keyCombination("Meta+Minus"));
+        zoomOut.setOnAction(_ -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); });
+
+        var zoomReset = new MenuItem("Reset Zoom");
+        zoomReset.setAccelerator(KeyCombination.keyCombination("Meta+0"));
+        zoomReset.setOnAction(_ -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, DEFAULT_SIZE); });
+
+        // Theme submenu
+        var themeToggle = new ToggleGroup();
+        var themeMenu = new Menu("Theme");
+        for (var t : themes()) {
+            var item = new RadioMenuItem(t.label());
+            item.setToggleGroup(themeToggle);
+            if (t.theme().equals(currentTheme)) item.setSelected(true);
+            item.setOnAction(_ -> { currentTheme = t.theme(); applyThemeToAll(); });
+            themeMenu.getItems().add(item);
+        }
+
+        // Font submenu
+        var fontToggle = new ToggleGroup();
+        var fontMenu = new Menu("Font");
+        for (var f : detectFonts()) {
+            var item = new RadioMenuItem(f.family());
+            item.setToggleGroup(fontToggle);
+            if (f.family().equals(currentFontFamily)) item.setSelected(true);
+            item.setOnAction(_ -> { currentFontFamily = f.family(); applyFontToAll(); });
+            fontMenu.getItems().add(item);
+        }
+
+        var viewMenu = new Menu("View", null, zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu);
+
+        return new MenuBar(shellMenu, viewMenu, windowMenu);
+    }
+
+    // --- Right-click Context Menu ---
+
+    private static ContextMenu createContextMenu(TerminalView view) {
+        var newWindowItem = new MenuItem("New Window           \u2318N");
+        newWindowItem.setOnAction(_ -> newWindow());
+
+        var newTabItem = new MenuItem("New Tab                 \u2318T");
+        newTabItem.setOnAction(_ -> newTab(findTabPane(view)));
+
+        var splitH = new MenuItem("Split Horizontal    \u2318D");
+        splitH.setOnAction(_ -> split(view, Orientation.VERTICAL));
+
+        var splitV = new MenuItem("Split Vertical        \u2318\u21E7D");
+        splitV.setOnAction(_ -> split(view, Orientation.HORIZONTAL));
+
+        var zoomIn = new MenuItem("Zoom In                 \u2318+");
+        zoomIn.setOnAction(_ -> zoomTerminal(view, 1));
+
+        var zoomOut = new MenuItem("Zoom Out              \u2318\u2212");
+        zoomOut.setOnAction(_ -> zoomTerminal(view, -1));
+
+        var zoomReset = new MenuItem("Reset Zoom           \u23180");
+        zoomReset.setOnAction(_ -> setTerminalZoom(view, DEFAULT_SIZE));
+
+        var copy = new MenuItem("Copy                      \u2318C");
+        copy.setOnAction(_ -> view.copySelection());
+
+        var paste = new MenuItem("Paste                     \u2318V");
+        paste.setOnAction(_ -> view.pasteClipboard());
+
+        return new ContextMenu(
+                newWindowItem, newTabItem, splitH, splitV,
+                new SeparatorMenuItem(),
+                zoomIn, zoomOut, zoomReset,
+                new SeparatorMenuItem(),
+                copy, paste);
+    }
+
+    // --- Tab Management ---
+
+    private static void newTab(TabPane tabPane) {
+        var view = createTerminal();
+        if (view == null) return;
+        var tab = new Tab();
+        tab.textProperty().bind(view.titleProperty());
+        tab.setContent(view);
+        tab.setClosable(true);
+        tab.setOnClosed(_ -> closeTerminalsIn(view));
+        tabPane.getTabs().add(tab);
+        tabPane.getSelectionModel().select(tab);
+    }
+
+    private static void rebuildWindowMenus() {
+        for (var menu : windowMenus) {
+            menu.getItems().clear();
+            for (int i = 0; i < windows.size(); i++) {
+                var w = windows.get(i);
+                var item = new MenuItem(w.getTitle() != null ? w.getTitle() : "Window " + (i + 1));
+                item.setOnAction(_ -> { w.toFront(); w.requestFocus(); });
+                menu.getItems().add(item);
+            }
+            if (menu.getItems().isEmpty()) menu.getItems().add(new MenuItem("(no windows)"));
+        }
+    }
+
+    /** Find the TabPane that contains this view. */
+    private static TabPane findTabPane(Node node) {
+        var p = node.getParent();
+        while (p != null) {
+            if (p instanceof TabPane tp) return tp;
+            p = p.getParent();
+        }
+        // Fallback: find via windows
+        for (var w : windows) {
+            var root = w.getScene().getRoot();
+            if (root instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp) return tp;
+        }
+        return null;
+    }
+
+    /** Find the Stage for a TabPane. */
+    private static Stage findStage(TabPane tp) {
+        if (tp != null && tp.getScene() != null && tp.getScene().getWindow() instanceof Stage s) return s;
+        return null;
+    }
+
+    /** Find the Stage for a TerminalView. */
+    private static Stage findStageFor(TerminalView view) {
+        var tp = findTabPane(view);
+        return tp != null ? findStage(tp) : null;
+    }
+
+    private static void updateTabBarVisibility(TabPane tp) {
+        var hide = tp.getTabs().size() <= 1;
+        if (hide) { if (!tp.getStyleClass().contains("single-tab")) tp.getStyleClass().add("single-tab"); }
+        else tp.getStyleClass().remove("single-tab");
+    }
+
+    // --- Split Management ---
+
+    private static void splitActive(Orientation orientation) {
+        if (activeTerminal != null) split(activeTerminal, orientation);
+    }
+
+    private static void split(TerminalView existing, Orientation orientation) {
+        var newView = createTerminal();
+        if (newView == null) return;
+
+        var sp = findParentSplitPane(existing);
+        if (sp != null) {
+            // Already in a split — find the existing view's index and add next to it
+            var items = sp.getItems();
+            int idx = items.indexOf(existing);
+            if (idx >= 0) {
+                if (sp.getOrientation() == orientation) {
+                    // Same orientation — just add another item
+                    items.add(idx + 1, newView);
+                    evenDividers(sp);
+                } else {
+                    // Different orientation — wrap in a new nested SplitPane
+                    var nested = new SplitPane(existing, newView);
+                    nested.setOrientation(orientation);
+                    items.set(idx, nested);
+                    evenDividers(sp);
+                }
+            }
+        } else {
+            // Currently the sole content of a tab — wrap in SplitPane
+            var tab = findTab(existing);
+            if (tab != null) {
+                var newSp = new SplitPane(existing, newView);
+                newSp.setOrientation(orientation);
+                tab.setContent(newSp);
+            }
+        }
+        Platform.runLater(newView::requestFocus);
+    }
+
+    private static void evenDividers(SplitPane sp) {
+        int n = sp.getItems().size();
+        if (n <= 1) return;
+        double[] positions = new double[n - 1];
+        for (int i = 0; i < positions.length; i++) positions[i] = (i + 1.0) / n;
+        Platform.runLater(() -> sp.setDividerPositions(positions));
+    }
+
+    // --- Close Management ---
+
+    private static void closeActive(TabPane tabPane, Stage stage) {
+        if (activeTerminal != null) removeTerminal(activeTerminal, tabPane, stage);
+    }
+
+    private static void removeTerminal(TerminalView view, TabPane tabPane, Stage stage) {
+        Thread.ofVirtual().name("jhostty-close").start(view::close);
+
+        if (tabPane == null) tabPane = findTabPane(view);
+        if (stage == null && tabPane != null) stage = findStage(tabPane);
+
+        var sp = findParentSplitPane(view);
+        if (sp != null) {
+            sp.getItems().remove(view);
+            if (sp.getItems().size() == 1) {
+                var remaining = sp.getItems().getFirst();
+                sp.getItems().clear();
+                var gsp = findParentSplitPane(sp);
+                if (gsp != null) {
+                    int idx = gsp.getItems().indexOf(sp);
+                    if (idx >= 0) gsp.getItems().set(idx, remaining);
+                    evenDividers(gsp);
+                } else {
+                    var tab = findTab(sp);
+                    if (tab != null) tab.setContent(remaining);
+                }
+                if (remaining instanceof TerminalView tv) tv.requestFocus();
+            } else if (sp.getItems().isEmpty()) {
+                var tab = findTab(sp);
+                if (tab != null && tabPane != null) tabPane.getTabs().remove(tab);
+            } else {
+                evenDividers(sp);
+                if (sp.getItems().getFirst() instanceof TerminalView tv) tv.requestFocus();
+            }
+        } else {
+            var tab = findTab(view);
+            if (tab != null && tabPane != null) tabPane.getTabs().remove(tab);
+        }
+
+        if (tabPane != null && tabPane.getTabs().isEmpty() && stage != null) stage.close();
+    }
+
+    private static Tab findTab(Node node) {
+        var tp = findTabPane(node);
+        if (tp == null) return null;
+        for (var tab : tp.getTabs()) {
+            if (tab.getContent() == node) return tab;
+            if (containsNode(tab.getContent(), node)) return tab;
+        }
+        return null;
+    }
+
+    private static boolean containsNode(Node container, Node target) {
+        if (container == target) return true;
+        if (container instanceof SplitPane sp) {
+            for (var item : sp.getItems()) {
+                if (containsNode(item, target)) return true;
+            }
+        }
+        return false;
+    }
+
+    // --- Terminal Factory ---
+
+    private static TerminalView createTerminal() {
+        try {
+            var view = new TerminalView((columns, rows) -> {
+                var launcher = Shell.integrate(shellCommand, System.getenv());
+                return new PtyTerminal(launcher.command(), cwd, launcher.environment(), columns, rows);
+            });
+            view.getProperties().put(ZOOM_KEY, DEFAULT_SIZE);
+            view.setFont(resolveFont(currentFontFamily, DEFAULT_SIZE));
+            view.setTheme(currentTheme);
+
+            // Track active terminal on focus
+            view.focusedProperty().addListener((_, _, focused) -> {
+                if (focused) {
+                    activeTerminal = view;
+                    var stg = findStageFor(view);
+                    if (stg != null) { stg.setTitle(view.getTitle() != null ? view.getTitle() : "jhostty"); rebuildWindowMenus(); }
+                }
+            });
+            view.titleProperty().addListener((_, _, title) -> {
+                if (view == activeTerminal) {
+                    var stg = findStageFor(view);
+                    if (stg != null) { stg.setTitle(title != null ? title : "jhostty"); rebuildWindowMenus(); }
+                }
+            });
+
+            // Auto-remove on process exit
+            view.terminalStateProperty().addListener((_, _, state) -> {
+                if (!(state instanceof TerminalState.Running)) {
+                    Platform.runLater(() -> removeTerminal(view, null, null));
+                }
+            });
+
+            // Right-click context menu
+            var ctx = createContextMenu(view);
+            view.setOnContextMenuRequested(e -> ctx.show(view, e.getScreenX(), e.getScreenY()));
+
+            // Drag-and-drop: accept text, files, URLs
+            view.setOnDragOver(e -> {
+                var db = e.getDragboard();
+                if (db.hasString() || db.hasFiles() || db.hasUrl()) {
+                    e.acceptTransferModes(TransferMode.COPY);
+                }
+                e.consume();
+            });
+            view.setOnDragDropped(e -> {
+                var db = e.getDragboard();
+                if (db.hasFiles()) {
+                    var paths = db.getFiles().stream()
+                            .map(f -> f.getAbsolutePath().contains(" ") ? "'" + f.getAbsolutePath() + "'" : f.getAbsolutePath())
+                            .toList();
+                    view.sendText(String.join(" ", paths));
+                } else if (db.hasString()) {
+                    view.sendText(db.getString());
+                } else if (db.hasUrl()) {
+                    view.sendText(db.getUrl());
+                }
+                e.setDropCompleted(true);
+                e.consume();
+            });
+
+            return view;
+        } catch (RuntimeException e) {
+            var alert = new Alert(Alert.AlertType.ERROR);
+            alert.setTitle("jhostty");
+            alert.setHeaderText("Failed to start terminal");
+            alert.setContentText(e.getMessage());
+            alert.showAndWait();
+            return null;
+        }
+    }
+
+    // --- Apply settings globally ---
+
+    private static double getTerminalSize(TerminalView v) {
+        var s = v.getProperties().get(ZOOM_KEY);
+        return s instanceof Double d ? d : DEFAULT_SIZE;
+    }
+
+    private static void zoomTerminal(TerminalView v, double delta) {
+        setTerminalZoom(v, Math.max(8, getTerminalSize(v) + delta));
+    }
+
+    private static void setTerminalZoom(TerminalView v, double size) {
+        v.getProperties().put(ZOOM_KEY, size);
+        v.setFont(resolveFont(currentFontFamily, size));
+        updateTitle();
+    }
+
+    private static void applyFontToAll() {
+        forEachTerminal(v -> v.setFont(resolveFont(currentFontFamily, getTerminalSize(v))));
+        updateTitle();
+    }
+
+    private static void updateTitle() {
+        if (activeTerminal == null) return;
+        var stg = findStageFor(activeTerminal);
+        if (stg == null) return;
+        var base = activeTerminal.getTitle() != null ? activeTerminal.getTitle() : "jhostty";
+        var pct = Math.round(getTerminalSize(activeTerminal) / DEFAULT_SIZE * 100);
+        stg.setTitle(pct == 100 ? base : base + " (" + pct + "%)");
+    }
+
+    private static void applyThemeToAll() {
+        forEachTerminal(v -> v.setTheme(currentTheme));
+        writeCss();
+        // Force CSS reload on all scenes
+        for (var w : windows) {
+            var sheets = w.getScene().getStylesheets();
+            if (sheets.contains(cssUrl)) { sheets.remove(cssUrl); sheets.add(cssUrl); }
+        }
+    }
+
+    private static String colorToCss(Color c) {
+        return String.format("rgba(%d,%d,%d,%.2f)",
+                (int)(c.getRed()*255), (int)(c.getGreen()*255), (int)(c.getBlue()*255), c.getOpacity());
+    }
+
+    private static void writeCss() {
+        if (cssPath == null) return;
+        var bg = currentTheme.background();
+        var fg = currentTheme.foreground();
+        // Determine if theme is dark or light
+        var lum = bg.getRed() * 0.299 + bg.getGreen() * 0.587 + bg.getBlue() * 0.114;
+        var dark = lum < 0.5;
+        // Menu bg: slightly offset from terminal bg
+        var menuBg = dark ? bg.brighter().brighter() : bg.darker();
+        var menuBgCss = String.format("rgba(%d,%d,%d,0.95)",
+                (int)(menuBg.getRed()*255), (int)(menuBg.getGreen()*255), (int)(menuBg.getBlue()*255));
+        var fgCss = colorToCss(fg);
+        var borderCss = dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.15)";
+        var sepCss = dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)";
+        var selBg = currentTheme.selectionColor();
+        var selCss = String.format("rgba(%d,%d,%d,0.8)",
+                (int)(selBg.getRed()*255), (int)(selBg.getGreen()*255), (int)(selBg.getBlue()*255));
+        var selText = dark ? "white" : "black";
+        var dividerCss = dark ? "#555555" : "#bbbbbb";
+        try {
+            Files.writeString(cssPath, """
+                    .single-tab > .tab-header-area {
+                        -fx-max-height: 0;
+                        -fx-pref-height: 0;
+                        -fx-min-height: 0;
+                        visibility: hidden;
+                    }
+                    .split-pane > .split-pane-divider {
+                        -fx-background-color: %s;
+                        -fx-padding: 1;
+                    }
+                    .context-menu {
+                        -fx-background-color: %s;
+                        -fx-background-radius: 8;
+                        -fx-border-radius: 8;
+                        -fx-border-color: %s;
+                        -fx-border-width: 0.5;
+                        -fx-padding: 4 0 4 0;
+                        -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 12, 0, 0, 4);
+                    }
+                    .context-menu .menu-item {
+                        -fx-padding: 4 16 4 16;
+                    }
+                    .context-menu .menu-item .label {
+                        -fx-text-fill: %s;
+                        -fx-font-size: 13;
+                    }
+                    .context-menu .menu-item:focused {
+                        -fx-background-color: %s;
+                        -fx-background-radius: 4;
+                        -fx-background-insets: 0 4 0 4;
+                    }
+                    .context-menu .menu-item:focused .label {
+                        -fx-text-fill: %s;
+                    }
+                    .context-menu .separator {
+                        -fx-padding: 4 8 4 8;
+                    }
+                    .context-menu .separator .line {
+                        -fx-border-color: %s;
+                        -fx-border-width: 0.5 0 0 0;
+                    }
+                    """.formatted(dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss));
+        } catch (IOException _) {}
+    }
+
+    private static void forEachTerminal(java.util.function.Consumer<TerminalView> action) {
+        for (var w : windows) {
+            if (w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp) {
+                for (var tab : tp.getTabs()) forEachTerminalIn(tab.getContent(), action);
+            }
+        }
+    }
+
+    /** Walk up the scene graph to find the SplitPane containing this node. */
+    private static SplitPane findParentSplitPane(Node node) {
+        var p = node.getParent();
+        while (p != null) {
+            if (p instanceof SplitPane sp && sp.getItems().contains(node)) return sp;
+            // SplitPane wraps items in SplitPaneSkin$Content — check if parent's parent is SplitPane
+            if (p.getParent() instanceof SplitPane sp && sp.getItems().contains(node)) return sp;
+            node = p;
+            p = p.getParent();
+        }
+        return null;
+    }
+
+    /** Find the TerminalView under the given screen coordinates, or null. */
+    private static TerminalView terminalAt(TabPane tabPane, double screenX, double screenY) {
+        for (var tab : tabPane.getTabs()) {
+            var hit = terminalAtIn(tab.getContent(), screenX, screenY);
+            if (hit != null) return hit;
+        }
+        return null;
+    }
+
+    private static TerminalView terminalAtIn(Node node, double screenX, double screenY) {
+        if (node instanceof TerminalView v) {
+            var bounds = v.localToScreen(v.getBoundsInLocal());
+            return bounds != null && bounds.contains(screenX, screenY) ? v : null;
+        }
+        if (node instanceof SplitPane sp) {
+            for (var item : sp.getItems()) {
+                var hit = terminalAtIn(item, screenX, screenY);
+                if (hit != null) return hit;
+            }
+        }
+        return null;
+    }
+
+    private static void forEachTerminalIn(Node node, java.util.function.Consumer<TerminalView> action) {
+        if (node instanceof TerminalView v) action.accept(v);
+        else if (node instanceof SplitPane sp) sp.getItems().forEach(n -> forEachTerminalIn(n, action));
+    }
+
+    private static void closeAllTerminalsIn(TabPane tp) {
+        for (var tab : tp.getTabs()) closeTerminalsIn(tab.getContent());
+    }
+
+    private static void closeTerminalsIn(Node node) {
+        forEachTerminalIn(node, v -> Thread.ofVirtual().name("jhostty-close").start(v::close));
+    }
+
+    // --- PTY Terminal ---
+
+    static final class PtyTerminal implements Terminal {
+        private final PtyProcess process;
+
+        PtyTerminal(List<String> command, Path cwd, Map<String, String> env, int columns, int rows) throws IOException {
+            process = (PtyProcess) new PtyProcessBuilder()
+                    .setCommand(command.toArray(String[]::new))
+                    .setConsole(false)
+                    .setRedirectErrorStream(true)
+                    .setDirectory(cwd.toString())
+                    .setEnvironment(env)
+                    .setInitialColumns(columns)
+                    .setInitialRows(rows)
+                    .setUseWinConPty(true)
+                    .start();
+        }
+
+        @Override public InputStream output() { return process.getInputStream(); }
+        @Override public OutputStream input() { return process.getOutputStream(); }
+        @Override public void resize(int columns, int rows) { process.setWinSize(new WinSize(columns, rows)); }
+
+        @Override
+        public void close() {
+            process.destroy();
+            try {
+                if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                    process.waitFor();
+                }
+            } catch (InterruptedException _) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    // --- Shell detection ---
+
+    private static List<ShellOption> detectTerminals() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")
+                ? detectWindowsShells()
+                : detectUnixShells();
+    }
+
+    private static List<ShellOption> detectWindowsShells() {
+        var result = new ArrayList<ShellOption>();
+        var seen = new LinkedHashSet<Path>();
+        addShell(result, seen, "PowerShell", "pwsh.exe");
+        addShell(result, seen, "Windows PowerShell", "powershell.exe");
+        addShell(result, seen, "Command Prompt", "cmd.exe");
+        return result;
+    }
+
+    private static List<ShellOption> detectUnixShells() {
+        var result = new ArrayList<ShellOption>();
+        var seen = new LinkedHashSet<Path>();
+        var shell = System.getenv("SHELL");
+        if (shell != null && !shell.isBlank()) {
+            addShell(result, seen, Path.of(shell).getFileName().toString(), shell);
+        }
+        addShell(result, seen, "bash", "bash");
+        addShell(result, seen, "zsh", "zsh");
+        addShell(result, seen, "fish", "fish");
+        addShell(result, seen, "sh", "sh");
+        return result;
+    }
+
+    private static void addShell(List<ShellOption> list, LinkedHashSet<Path> seen, String label, String cmd) {
+        var path = resolveExecutable(cmd);
+        if (path != null && seen.add(path)) {
+            list.add(new ShellOption(label, List.of(path.toString())));
+        }
+    }
+
+    private static Path resolveExecutable(String candidate) {
+        var p = Path.of(candidate);
+        if (p.isAbsolute()) return Files.isRegularFile(p) ? p : null;
+        for (var entry : System.getenv().getOrDefault("PATH", "").split(File.pathSeparator)) {
+            if (entry.isBlank()) continue;
+            var resolved = Path.of(entry).resolve(candidate);
+            if (Files.isExecutable(resolved)) return resolved.toAbsolutePath().normalize();
+        }
+        return null;
+    }
+
+    record ShellOption(String label, List<String> command) {
+        @Override public String toString() { return label; }
+    }
+
+    // --- Themes ---
+
+    private static List<ThemeOption> themes() {
+        return List.of(
+            new ThemeOption("Ghostty Default", TerminalTheme.defaults()),
+            darkTheme("Catppuccin Mocha", "#1e1e2e", "#cdd6f4", List.of(
+                "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af",
+                "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de",
+                "#585b70", "#f38ba8", "#a6e3a1", "#f9e2af",
+                "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8"), "#313244", "#cdd6f4"),
+            darkTheme("Dracula", "#282a36", "#f8f8f2", List.of(
+                "#000000", "#ff5555", "#50fa7b", "#f1fa8c",
+                "#bd93f9", "#ff79c6", "#8be9fd", "#bbbbbb",
+                "#555555", "#ff5555", "#50fa7b", "#f1fa8c",
+                "#bd93f9", "#ff79c6", "#8be9fd", "#ffffff"), "#44475a", "#f8f8f2"),
+            darkTheme("Nord", "#2e3440", "#d8dee9", List.of(
+                "#3b4252", "#bf616a", "#a3be8c", "#ebcb8b",
+                "#81a1c1", "#b48ead", "#88c0d0", "#e5e9f0",
+                "#4c566a", "#bf616a", "#a3be8c", "#ebcb8b",
+                "#81a1c1", "#b48ead", "#8fbcbb", "#eceff4"), "#434c5e", "#eceff4"),
+            darkTheme("Tokyo Night", "#1a1b26", "#c0caf5", List.of(
+                "#15161e", "#f7768e", "#9ece6a", "#e0af68",
+                "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
+                "#414868", "#f7768e", "#9ece6a", "#e0af68",
+                "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5"), "#28344a", "#c0caf5"),
+            darkTheme("Gruvbox Dark", "#282828", "#ebdbb2", List.of(
+                "#282828", "#cc241d", "#98971a", "#d79921",
+                "#458588", "#b16286", "#689d6a", "#a89984",
+                "#928374", "#fb4934", "#b8bb26", "#fabd2f",
+                "#83a598", "#d3869b", "#8ec07c", "#ebdbb2"), "#504945", "#ebdbb2"),
+            darkTheme("Monokai", "#272822", "#f8f8f2", List.of(
+                "#272822", "#f92672", "#a6e22e", "#f4bf75",
+                "#66d9ef", "#ae81ff", "#a1efe4", "#f8f8f2",
+                "#75715e", "#f92672", "#a6e22e", "#f4bf75",
+                "#66d9ef", "#ae81ff", "#a1efe4", "#f9f8f5"), "#49483e", "#f8f8f2"),
+            darkTheme("Solarized Dark", "#002b36", "#839496", List.of(
+                "#073642", "#dc322f", "#859900", "#b58900",
+                "#268bd2", "#d33682", "#2aa198", "#eee8d5",
+                "#002b36", "#cb4b16", "#586e75", "#657b83",
+                "#839496", "#6c71c4", "#93a1a1", "#fdf6e3"), "#073642", "#93a1a1"),
+            lightTheme("Solarized Light", "#fdf6e3", "#657b83", List.of(
+                "#073642", "#dc322f", "#859900", "#b58900",
+                "#268bd2", "#d33682", "#2aa198", "#eee8d5",
+                "#002b36", "#cb4b16", "#586e75", "#657b83",
+                "#839496", "#6c71c4", "#93a1a1", "#fdf6e3"), "#eee8d5", "#586e75"),
+            lightTheme("GitHub Light", "#ffffff", "#24292f", List.of(
+                "#24292f", "#cf222e", "#116329", "#4d2d00",
+                "#0969da", "#8250df", "#1b7c83", "#6e7781",
+                "#57606a", "#a40e26", "#1a7f37", "#633c01",
+                "#218bff", "#a475f9", "#3192aa", "#8c959f"), "#d0d7de", "#24292f")
+        );
+    }
+
+    private static ThemeOption darkTheme(String name, String bg, String fg, List<String> palette, String sel, String cursorText) {
+        return buildTheme(name, bg, fg, palette, sel, cursorText);
+    }
+
+    private static ThemeOption lightTheme(String name, String bg, String fg, List<String> palette, String sel, String cursorText) {
+        return buildTheme(name, bg, fg, palette, sel, cursorText);
+    }
+
+    private static ThemeOption buildTheme(String name, String bg, String fg, List<String> palette, String sel, String cursorText) {
+        var fgColor = Color.web(fg);
+        return new ThemeOption(name, new TerminalTheme(
+                Color.web(bg), fgColor,
+                palette.stream().map(Color::web).toList(),
+                fgColor, Color.web(cursorText), Color.web(sel), fgColor, 0.5,
+                fgColor.deriveColor(0, 1, 1, 0.45),
+                fgColor.deriveColor(0, 1, 1, 0.18),
+                fgColor.deriveColor(0, 1, 1, 0.35)));
+    }
+
+    // --- Font handling ---
+
+    private static String defaultFontFamily() {
+        var families = Font.getFamilies();
+        for (var family : List.of(
+                "JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font",
+                "JetBrains Mono", "SF Mono", "Menlo", "Monaco", "Consolas")) {
+            if (families.contains(family)) return family;
+        }
+        return "Monospaced";
+    }
+
+    private static Font resolveFont(String family, double size) {
+        return new Font(Font.getFontNames(family).stream()
+                .filter(n -> n.endsWith("Regular") || n.equals(family))
+                .findFirst()
+                .orElse(family), size);
+    }
+
+    private static List<FontOption> detectFonts() {
+        var preferred = List.of(
+                "JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font",
+                "JetBrains Mono", "FiraCode Nerd Font", "Hack Nerd Font",
+                "SF Mono", "Menlo", "Monaco", "Consolas", "Courier New");
+        var all = Font.getFamilies();
+        var result = new ArrayList<FontOption>();
+        var added = new LinkedHashSet<String>();
+        for (var family : preferred) {
+            if (all.contains(family) && added.add(family)) result.add(new FontOption(family));
+        }
+        for (var family : all) {
+            if (added.add(family)) result.add(new FontOption(family));
+        }
+        return result;
+    }
+
+    // --- macOS app name ---
+
+    private static void setMacAppName(String name) {
+        try {
+            var linker = Linker.nativeLinker();
+            var rt = SymbolLookup.libraryLookup("libobjc.dylib", Arena.global());
+            var arena = Arena.global();
+            var cls = linker.downcallHandle(rt.find("objc_getClass").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+            var sel = linker.downcallHandle(rt.find("sel_registerName").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+            var send0 = linker.downcallHandle(rt.find("objc_msgSend").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+            var send1 = linker.downcallHandle(rt.find("objc_msgSend").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+            var sendV = linker.downcallHandle(rt.find("objc_msgSend").orElseThrow(),
+                    FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+            var sendL = linker.downcallHandle(rt.find("objc_msgSend").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+            var nsStr = (MemorySegment) send1.invoke(
+                    (MemorySegment) send0.invoke((MemorySegment) cls.invoke(arena.allocateFrom("NSString")),
+                            (MemorySegment) sel.invoke(arena.allocateFrom("alloc"))),
+                    (MemorySegment) sel.invoke(arena.allocateFrom("initWithUTF8String:")),
+                    arena.allocateFrom(name));
+            var nsApp = (MemorySegment) send0.invoke(
+                    (MemorySegment) cls.invoke(arena.allocateFrom("NSApplication")),
+                    (MemorySegment) sel.invoke(arena.allocateFrom("sharedApplication")));
+            var mainMenu = (MemorySegment) send0.invoke(nsApp, (MemorySegment) sel.invoke(arena.allocateFrom("mainMenu")));
+            var appMenuItem = (MemorySegment) sendL.invoke(mainMenu, (MemorySegment) sel.invoke(arena.allocateFrom("itemAtIndex:")), 0L);
+            var appMenu = (MemorySegment) send0.invoke(appMenuItem, (MemorySegment) sel.invoke(arena.allocateFrom("submenu")));
+            sendV.invoke(appMenu, (MemorySegment) sel.invoke(arena.allocateFrom("setTitle:")), nsStr);
+        } catch (Throwable _) {}
+    }
+
+    record FontOption(String family) {
+        @Override public String toString() { return family; }
+    }
+
+    record ThemeOption(String label, TerminalTheme theme) {
+        @Override public String toString() { return label; }
+    }
+}

@@ -1,0 +1,7 @@
+{
+  "aliases": {
+    "jhostty": {
+      "script-ref": "jhostty.java"
+    }
+  }
+}
