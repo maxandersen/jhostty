@@ -1,61 +1,155 @@
-# jhostty
+<p align="center">
+  <img src="screenshots/logo.png" alt="jhostty logo" width="180">
+</p>
+<p align="center">
+  <em>Probably the most portable terminal in the world</em>
+</p>
 
-A terminal emulator built as a single JBang file using [GhosttyFX](https://github.com/vlaaad/ghosttyfx) — Ghostty's terminal engine in JavaFX.
+<p align="center">
+  <img src="https://img.shields.io/badge/Java-25-orange" alt="Java 25">
+  <img src="https://img.shields.io/badge/GhosttyFX-0.1.169-blue" alt="GhosttyFX">
+  <img src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-green" alt="Platforms">
+  <img src="https://img.shields.io/badge/lines-~940-lightgrey" alt="~940 lines">
+</p>
 
-![jhostty](https://img.shields.io/badge/Java-25-orange) ![GhosttyFX](https://img.shields.io/badge/GhosttyFX-0.1.169-blue)
+A full-featured terminal emulator in a **single Java file**, powered by [GhosttyFX](https://github.com/vlaaad/ghosttyfx) — Ghostty's terminal engine exposed as a JavaFX control. No build system, no IDE, no project setup — just [JBang](https://jbang.dev) and one file.
 
-## Run
+![jhostty main window](screenshots/main.png)
+
+This was an idea created, edited and published in a few hours a Sunday morning - no promises; but do share if it works or not for you :)
+
+## Get Started
+
+**Run instantly** (JBang downloads Java 25 automatically if needed):
 
 ```bash
 jbang jhostty@maxandersen
 ```
 
-Or clone and run directly:
+**Install as a command** for everyday use:
 
 ```bash
+jbang app install jhostty@maxandersen
+jhostty
+```
+
+Or clone and run from source:
+
+```bash
+git clone https://github.com/maxandersen/jhostty.git
+cd jhostty
 jbang jhostty.java
 ```
 
 ## Features
 
-- **Ghostty-powered** terminal rendering via GhosttyFX
-- **Multiple windows** (⌘N), **tabs** (⌘T), **splits** (⌘D horizontal, ⌘⇧D vertical)
-- **Per-terminal zoom** — ⌘+/⌘- or Cmd+scroll/pinch, targets terminal under cursor
-- **9 built-in themes** — Ghostty Default, Catppuccin Mocha, Dracula, Nord, Tokyo Night, Gruvbox Dark, Monokai, Solarized Dark/Light, GitHub Light
-- **All system fonts** available — preferred terminal fonts listed first
-- **Native macOS menu bar** with Shell, View, and Window menus
-- **Right-click context menu** styled to match the selected theme
-- **Drag-and-drop** — drop text, files, or URLs onto any terminal
-- **Built-in search** (⌘F) with Ghostty shell integration
+### 🪟 Multiple Windows, Tabs & Splits
+
+Open as many windows, tabs, and split panes as you need. Horizontal and vertical splits can be nested freely.
+
+![Split panes](screenshots/splits.png)
+
+Tab bar appears automatically when you have more than one tab, hides when you're back to one.
+
+![Tabs](screenshots/tabs.png)
+
+### 🎨 10 Built-in Themes
+
+Switch themes on the fly from the View menu — the entire UI adapts, including context menus and split dividers.
+
+![Themes](screenshots/themes.png)
+
+### 🔍 Per-Terminal Zoom
+
+Each split pane has its own independent zoom level. Zoom with keyboard shortcuts, scroll wheel, or trackpad pinch (macOS). The title bar shows the current zoom percentage.
+
+![Zoom levels](screenshots/zoom-levels.png)
+
+### 🔤 All System Fonts
+
+Every font on your system is available in the View → Font menu. Popular terminal fonts (JetBrains Mono, Fira Code, Hack, SF Mono, Consolas) are listed first for quick access.
+
+### ✨ More
+
+- **Drag-and-drop** — drop files, text, or URLs onto any terminal pane
 - **Link detection** — clickable URLs in terminal output
-- **Shell integration** — prompt navigation via Ghostty's shell integration
+- **Right-click context menu** — styled to match the current theme
+- **Shell integration** — search (⌘F/Ctrl+F) and prompt navigation via Ghostty shell integration
+- **Native macOS menu bar** — app name, menus, and shortcuts feel native
+- **Cross-platform shortcuts** — ⌘ on macOS, Ctrl on Windows/Linux
 
 ## Keyboard Shortcuts
 
-| Action | Shortcut |
-|---|---|
-| New Window | ⌘N |
-| New Tab | ⌘T |
-| Split Horizontal | ⌘D |
-| Split Vertical | ⌘⇧D |
-| Close Terminal | ⌘W |
-| Zoom In | ⌘+ or Cmd+scroll up |
-| Zoom Out | ⌘- or Cmd+scroll down |
-| Reset Zoom | ⌘0 |
-| Search | ⌘F |
+| Action | macOS | Windows / Linux |
+|--------|-------|-----------------|
+| New Window | ⌘N | Ctrl+N |
+| New Tab | ⌘T | Ctrl+T |
+| Split Horizontal | ⌘D | Ctrl+D |
+| Split Vertical | ⌘⇧D | Ctrl+Shift+D |
+| Close Terminal | ⌘W | Ctrl+W |
+| Zoom In | ⌘+ | Ctrl++ |
+| Zoom Out | ⌘− | Ctrl+− |
+| Reset Zoom | ⌘0 | Ctrl+0 |
+| Search | ⌘F | Ctrl+F |
+| Scroll Zoom | ⌘+scroll | Ctrl+scroll |
 
 ## Requirements
 
-- Java 25 (auto-downloaded by JBang)
-- [JBang](https://jbang.dev)
+- [JBang](https://jbang.dev) — that's it. JBang handles everything else:
+  - Downloads **Java 25** automatically if not present
+  - Resolves **GhosttyFX**, **pty4j**, and all dependencies
+  - Compiles and caches the single `.java` file
+
+## How It Works
+
+jhostty is a single `jhostty.java` file — ~940 lines, no build system, no project structure. JBang reads the dependency declarations at the top of the file, resolves everything from Maven Central, and runs it.
+
+```
+jhostty.java
+├── Terminal rendering ← GhosttyFX (Ghostty's engine in JavaFX)
+├── PTY backend       ← pty4j (cross-platform pseudo-terminal)
+├── UI                ← JavaFX (comes with GhosttyFX)
+└── Build/run         ← JBang (zero setup)
+```
+
+Key design choices:
+- **No `Application` subclass ceremony** — uses `Application.launch()` with a minimal `start()` method
+- **All state is static** — single-file simplicity, no DI framework
+- **Per-terminal zoom** via node properties — no global state conflicts
+- **Event filters** intercept shortcuts before the terminal view consumes them
+- **Dynamic CSS** — theme changes regenerate a temp CSS file and hot-reload it
 
 ## Font Recommendation
 
-For best nerd font glyph support (powerline symbols, git icons in prompts):
+For the best experience with nerd font glyphs (powerline symbols, git icons):
 
 ```bash
+# macOS
 brew install font-jetbrains-mono-nerd-font
+
+# Linux
+sudo apt install fonts-jetbrains-mono  # or your distro's equivalent
+
+# Windows
+# Download from https://www.nerdfonts.com/font-downloads
 ```
+
+## Debugging
+
+Run with `--debug` to log input events and modifiers to stderr:
+
+```bash
+jbang jhostty@maxandersen --debug
+```
+
+## Built With
+
+| Component | What | Why |
+|-----------|------|-----|
+| [GhosttyFX](https://github.com/vlaaad/ghosttyfx) | Terminal control | Ghostty's rendering engine as a JavaFX node |
+| [pty4j](https://github.com/JetBrains/pty4j) | PTY backend | Cross-platform pseudo-terminal from JetBrains |
+| [JBang](https://jbang.dev) | Build & run | Zero-setup Java scripting — no Maven, no Gradle |
+| [JavaFX](https://openjfx.io) | UI toolkit | Comes transitively via GhosttyFX |
 
 ## License
 
