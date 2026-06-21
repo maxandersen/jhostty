@@ -564,7 +564,10 @@ public class jhostty extends Application {
     }
 
     private static void zoomTerminal(TerminalView v, double delta) {
-        setTerminalZoom(v, Math.max(8, getTerminalSize(v) + delta));
+        var oldSize = getTerminalSize(v);
+        var newSize = Math.max(8, oldSize + delta);
+        debug("zoom: " + oldSize + " -> " + newSize + " (delta=" + delta + ")");
+        setTerminalZoom(v, newSize);
     }
 
     private static void setTerminalZoom(TerminalView v, double size) {
