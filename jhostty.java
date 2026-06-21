@@ -173,7 +173,7 @@ public class jhostty extends Application {
                         + " shortcut=" + e.isShortcutDown() + " direct=" + e.isDirect()
                         + " inertia=" + e.isInertia() + " touchCount=" + e.getTouchCount());
             }
-            if (e.isShortcutDown()) {
+            if (e.isShortcutDown() && e.getDeltaY() != 0) {
                 var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
                 if (target == null) target = activeTerminal;
                 if (target != null) { zoomTerminal(target, e.getDeltaY() > 0 ? 1 : -1); e.consume(); }
