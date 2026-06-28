@@ -326,6 +326,9 @@ public class jhostty extends Application {
         var splitV = new MenuItem("Split Vertical        " + sc + sh + "D");
         splitV.setOnAction(_ -> split(view, Orientation.HORIZONTAL));
 
+        var closeItem = new MenuItem("Close Terminal      " + sc + "W");
+        closeItem.setOnAction(_ -> removeTerminal(view, findTabPane(view), findStage(findTabPane(view))));
+
         var zoomIn = new MenuItem("Zoom In                 " + sc + "+");
         zoomIn.setOnAction(_ -> zoomTerminal(view, 1));
 
@@ -343,6 +346,8 @@ public class jhostty extends Application {
 
         return new ContextMenu(
                 newWindowItem, newTabItem, splitH, splitV,
+                new SeparatorMenuItem(),
+                closeItem,
                 new SeparatorMenuItem(),
                 zoomIn, zoomOut, zoomReset,
                 new SeparatorMenuItem(),
