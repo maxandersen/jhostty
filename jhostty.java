@@ -6,22 +6,17 @@
 //DEPS io.smallrye.config:smallrye-config:3.12.4
 //RUNTIME_OPTIONS --enable-native-access=ALL-UNNAMED --enable-native-access=javafx.graphics
 
-import java.lang.foreign.*;
-
-import com.pty4j.PtyProcess;
-import com.pty4j.PtyProcessBuilder;
-import com.pty4j.WinSize;
-import io.github.vlaaad.ghosttyfx.Shell;
-import io.github.vlaaad.ghosttyfx.Terminal;
-import io.github.vlaaad.ghosttyfx.TerminalState;
-import io.github.vlaaad.ghosttyfx.TerminalTheme;
-import io.github.vlaaad.ghosttyfx.TerminalView;
-
 // (java.lang.foreign.* imported above for macOS app name)
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
+import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -34,14 +29,31 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
+import com.pty4j.PtyProcess;
+import com.pty4j.PtyProcessBuilder;
+import com.pty4j.WinSize;
+
+import io.github.vlaaad.ghosttyfx.Shell;
+import io.github.vlaaad.ghosttyfx.Terminal;
+import io.github.vlaaad.ghosttyfx.TerminalState;
+import io.github.vlaaad.ghosttyfx.TerminalTheme;
+import io.github.vlaaad.ghosttyfx.TerminalView;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Scene;
-import javafx.scene.control.*;
-import javafx.scene.input.DragEvent;
-import javafx.scene.input.KeyCode;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.Menu;
+import javafx.scene.control.MenuBar;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.RadioMenuItem;
+import javafx.scene.control.SeparatorMenuItem;
+import javafx.scene.control.SplitPane;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.ScrollEvent;
@@ -185,6 +197,10 @@ public class jhostty extends Application {
                 case EQUALS, PLUS, ADD -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); e.consume(); }
                 case MINUS, SUBTRACT -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); e.consume(); }
                 case DIGIT0, NUMPAD0 -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); e.consume(); }
+                case LEFT -> { if (e.isAltDown() && activeTerminal != null) { resizeActive(Orientation.HORIZONTAL, -1); e.consume(); } }
+                case RIGHT -> { if (e.isAltDown() && activeTerminal != null) { resizeActive(Orientation.HORIZONTAL,  1); e.consume(); } }
+                case UP -> { if (e.isAltDown() && activeTerminal != null) { resizeActive(Orientation.VERTICAL,   -1); e.consume(); } }
+                case DOWN -> { if (e.isAltDown() && activeTerminal != null) { resizeActive(Orientation.VERTICAL,    1); e.consume(); } }
                 default -> {}
             }
         });
@@ -460,6 +476,45 @@ public class jhostty extends Application {
         double[] positions = new double[n - 1];
         for (int i = 0; i < positions.length; i++) positions[i] = (i + 1.0) / n;
         Platform.runLater(() -> sp.setDividerPositions(positions));
+    }
+
+    private static void resizeActive(Orientation orientation, int direction) {
+        if (activeTerminal == null)
+            return;
+        var sp = findAncestorSplitPane(activeTerminal, orientation);
+        if (sp == null)
+            return;
+        int idx = -1;
+        for (int i = 0; i < sp.getItems().size(); i++) {
+            if (containsNode(sp.getItems().get(i), activeTerminal)) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0)
+            return;
+        var dividers = sp.getDividerPositions();
+        double delta = direction * 0.05;
+        if (idx < dividers.length) {
+            dividers[idx] = Math.max(0.05, Math.min(0.95, dividers[idx] + delta));
+        } else {
+            dividers[idx - 1] = Math.max(0.05, Math.min(0.95, dividers[idx - 1] + delta));
+        }
+        sp.setDividerPositions(dividers);
+    }
+
+    private static SplitPane findAncestorSplitPane(Node target, Orientation orientation) {
+        var p = target.getParent();
+        while (p != null) {
+            if (p instanceof SplitPane sp && sp.getOrientation() == orientation) {
+                for (var item : sp.getItems()) {
+                    if (containsNode(item, target))
+                        return sp;
+                }
+            }
+            p = p.getParent();
+        }
+        return null;
     }
 
     // --- Close Management ---
