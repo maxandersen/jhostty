@@ -42,6 +42,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.input.DragEvent;
 import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.ScrollEvent;
@@ -61,6 +62,7 @@ public class jhostty extends Application {
     private static final String SHIFT_SYMBOL = IS_MAC ? "\u21E7" : "Shift+";
     private static final double DEFAULT_SIZE = 15.0;
     private static final String ZOOM_KEY = "jhostty.fontSize";
+    private static final String COMMAND_KEY = "jhostty.command";
     private static final String WINDOW_KEY = "jhostty.window";
 
     private static final Set<TerminalView> closingTerminals = ConcurrentHashMap.newKeySet();
@@ -83,6 +85,34 @@ public class jhostty extends Application {
     private static boolean debug;
     private static final List<Stage> windows = new ArrayList<>();
     private static final List<Menu> windowMenus = new ArrayList<>();
+    private static boolean sidebarVisible = false;
+    private static boolean shuttingDown = false;
+    private static String savedLayout = null; // restored from state, consumed on first use
+    private static final Map<Stage, TreeView<SidebarItem>> sidebarsByWindow = new ConcurrentHashMap<>();
+    private static boolean sidebarRebuildScheduled = false;
+
+    // --- Sidebar model item ---
+
+    sealed interface SidebarItem {
+        String label();
+        record WindowItem(Stage stage, int index) implements SidebarItem {
+            public String label() { return stage.getTitle() != null ? stage.getTitle() : "Window " + (index + 1); }
+            @Override public String toString() { return label(); }
+        }
+        record TabItem(Tab tab, String title) implements SidebarItem {
+            public String label() { return title != null && !title.isBlank() ? title : "Terminal"; }
+            @Override public String toString() { return label(); }
+        }
+        record TerminalItem(TerminalView view, String title, List<String> command) implements SidebarItem {
+            public String label() { return title != null && !title.isBlank() ? title : commandLabel(); }
+            private String commandLabel() {
+                if (command == null || command.isEmpty()) return "Terminal";
+                var exe = Path.of(command.getFirst()).getFileName().toString();
+                return command.size() > 1 ? exe + " " + String.join(" ", command.subList(1, command.size())) : exe;
+            }
+            @Override public String toString() { return label(); }
+        }
+    }
 
     public static void main(String[] args) {
         // Ensure uncaught exceptions are visible
@@ -128,101 +158,34 @@ public class jhostty extends Application {
             writeCss();
         } catch (IOException _) {}
 
-        newWindow();
+        Platform.setImplicitExit(false); // we handle quit explicitly
+        restoreLayout();
         if (IS_MAC) {
             Platform.runLater(() -> setMacAppName("jhostty"));
         }
     }
 
-    private static Stage newWindow() {
-        var tabs = new TabPane();
-        tabs.getStyleClass().add("jhostty-tabs");
-
-        var menuBar = createMenuBar(tabs);
-        if (IS_MAC) {
-            menuBar.setUseSystemMenuBar(true);
-            menuBar.setMaxHeight(0);
-            menuBar.setPrefHeight(0);
-            menuBar.setMinHeight(0);
+    private static void quit() {
+        debug("quit: saving state before exit");
+        // Save while all windows are still alive, then block further saves
+        saveState();
+        shuttingDown = true;
+        // Now close all windows
+        var allWindows = new ArrayList<>(windows);
+        for (var w : allWindows) {
+            if (w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp) {
+                closeAllTerminalsIn(tp);
+            }
+            w.close();
         }
+        Platform.exit();
+    }
 
-        var root = new BorderPane();
-        root.setTop(menuBar);
-        root.setCenter(tabs);
-
-        var scene = new Scene(root, 1000, 700);
-        if (cssUrl != null) scene.getStylesheets().add(cssUrl);
-
-        updateTabBarVisibility(tabs);
-        tabs.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) _ -> updateTabBarVisibility(tabs));
-
-        var stage = new Stage();
-        stage.setTitle("jhostty");
-        stage.setScene(scene);
-        stage.setOnCloseRequest(_ -> closeAllTerminalsIn(tabs));
-        stage.setOnHidden(_ -> {
-            savedWindowX = stage.getX();
-            savedWindowY = stage.getY();
-            windows.remove(stage);
-            windowMenus.removeIf(m -> m.getParentMenu() == null && m.getParentPopup() == null);
-            rebuildWindowMenus();
-            if (windows.isEmpty()) Platform.exit();
-        });
-
-        // Key shortcuts — event filter to intercept before TerminalView
-        scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (debug && e.isShortcutDown()) {
-                debug("KeyEvent: code=" + e.getCode() + " meta=" + e.isMetaDown()
-                        + " ctrl=" + e.isControlDown() + " shift=" + e.isShiftDown()
-                        + " alt=" + e.isAltDown() + " shortcut=" + e.isShortcutDown());
-            }
-            if (!e.isShortcutDown()) return;
-            switch (e.getCode()) {
-                case N -> { newWindow(); e.consume(); }
-                case T -> { newTab(tabs); e.consume(); }
-                case D -> { if (e.isShiftDown()) splitActive(Orientation.HORIZONTAL); else splitActive(Orientation.VERTICAL); e.consume(); }
-                case W -> { closeActive(tabs, stage); e.consume(); }
-                case EQUALS, PLUS, ADD -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); e.consume(); }
-                case MINUS, SUBTRACT -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); e.consume(); }
-                case DIGIT0, NUMPAD0 -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); e.consume(); }
-                default -> {}
-            }
-        });
-
-        scene.addEventFilter(ScrollEvent.SCROLL, e -> {
-            if (debug) {
-                debug("ScrollEvent: deltaX=" + e.getDeltaX() + " deltaY=" + e.getDeltaY()
-                        + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown()
-                        + " shift=" + e.isShiftDown() + " alt=" + e.isAltDown()
-                        + " shortcut=" + e.isShortcutDown() + " direct=" + e.isDirect()
-                        + " inertia=" + e.isInertia() + " touchCount=" + e.getTouchCount());
-            }
-            if (e.isShortcutDown() && e.getDeltaY() != 0) {
-                var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
-                if (target == null) target = activeTerminal;
-                if (target != null) { zoomTerminal(target, e.getDeltaY() > 0 ? 1 : -1); e.consume(); }
-            }
-        });
-        scene.addEventFilter(ZoomEvent.ZOOM, e -> {
-            if (debug) {
-                debug("ZoomEvent: factor=" + e.getZoomFactor() + " total=" + e.getTotalZoomFactor()
-                        + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown()
-                        + " shift=" + e.isShiftDown() + " alt=" + e.isAltDown()
-                        + " shortcut=" + e.isShortcutDown() + " direct=" + e.isDirect()
-                        + " inertia=" + e.isInertia());
-            }
-            if (e.isShortcutDown()) {
-                var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
-                if (target == null) target = activeTerminal;
-                if (target != null) { zoomTerminal(target, e.getZoomFactor() > 1 ? 1 : -1); e.consume(); }
-            }
-        });
-
-        if (!Double.isNaN(savedWindowX)) stage.setX(savedWindowX);
-        if (!Double.isNaN(savedWindowY)) stage.setY(savedWindowY);
-        windows.add(stage);
-        stage.show();
-        rebuildWindowMenus();
+    private static Stage newWindow() {
+        var stage = newWindowEmpty();
+        if (stage == null) return null;
+        var bp = (BorderPane) stage.getScene().getRoot();
+        var tabs = (TabPane) bp.getCenter();
         newTab(tabs);
         return stage;
     }
@@ -304,7 +267,11 @@ public class jhostty extends Application {
             updateTitle();
         });
 
-        var viewMenu = new Menu("View", null, zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu, new SeparatorMenuItem(), reloadConfig);
+        var toggleSidebarItem = new MenuItem("Toggle Sidebar");
+        toggleSidebarItem.setAccelerator(new KeyCodeCombination(KeyCode.BACK_SLASH, KeyCombination.SHORTCUT_DOWN));
+        toggleSidebarItem.setOnAction(_ -> toggleSidebar());
+
+        var viewMenu = new Menu("View", null, toggleSidebarItem, new SeparatorMenuItem(), zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu, new SeparatorMenuItem(), reloadConfig);
 
         return new MenuBar(shellMenu, viewMenu, windowMenu);
     }
@@ -341,12 +308,17 @@ public class jhostty extends Application {
         var paste = new MenuItem("Paste                     " + sc + "V");
         paste.setOnAction(_ -> view.pasteClipboard());
 
+        var toggleSidebar = new MenuItem("Toggle Sidebar       " + sc + "\\");
+        toggleSidebar.setOnAction(_ -> toggleSidebar());
+
         return new ContextMenu(
                 newWindowItem, newTabItem, splitH, splitV,
                 new SeparatorMenuItem(),
                 zoomIn, zoomOut, zoomReset,
                 new SeparatorMenuItem(),
-                copy, paste);
+                copy, paste,
+                new SeparatorMenuItem(),
+                toggleSidebar);
     }
 
     // --- Tab Management ---
@@ -361,6 +333,7 @@ public class jhostty extends Application {
         tab.setOnClosed(_ -> closeTerminalsIn(view));
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
+        Platform.runLater(jhostty::saveState);
     }
 
     private static void rebuildWindowMenus() {
@@ -407,6 +380,101 @@ public class jhostty extends Application {
         var hide = tp.getTabs().size() <= 1;
         if (hide) { if (!tp.getStyleClass().contains("single-tab")) tp.getStyleClass().add("single-tab"); }
         else tp.getStyleClass().remove("single-tab");
+    }
+
+    // --- Sidebar ---
+
+    private static void toggleSidebar() {
+        sidebarVisible = !sidebarVisible;
+        debug("toggleSidebar: visible=" + sidebarVisible);
+        for (var w : windows) {
+            if (w.getScene().getRoot() instanceof BorderPane bp) {
+                if (sidebarVisible) {
+                    var sidebar = sidebarsByWindow.get(w);
+                    if (sidebar != null) bp.setLeft(sidebar);
+                } else {
+                    bp.setLeft(null);
+                }
+            }
+        }
+        if (sidebarVisible) rebuildAllSidebars();
+    }
+
+    /** Find the TabPane that contains a given Tab. */
+    private static TabPane findTabPaneForTab(Tab tab) {
+        for (var w : windows) {
+            if (w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp) {
+                if (tp.getTabs().contains(tab)) return tp;
+            }
+        }
+        return null;
+    }
+
+    private static void rebuildAllSidebars() {
+        if (!sidebarVisible) return;
+        // Debounce: coalesce multiple rebuild requests into one
+        if (sidebarRebuildScheduled) return;
+        sidebarRebuildScheduled = true;
+        Platform.runLater(() -> {
+            sidebarRebuildScheduled = false;
+            if (!sidebarVisible) return;
+            for (var w : windows) {
+                var sidebar = sidebarsByWindow.get(w);
+                if (sidebar != null && w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp) {
+                    rebuildSidebar(sidebar, w, tp);
+                }
+            }
+        });
+    }
+
+    private static void rebuildSidebar(TreeView<SidebarItem> sidebar, Stage stage, TabPane tabs) {
+        // Clear selection before replacing the root to avoid JavaFX IndexOutOfBoundsException
+        sidebar.getSelectionModel().clearSelection();
+
+        var root = new TreeItem<SidebarItem>(new SidebarItem.WindowItem(stage, windows.indexOf(stage)));
+        root.setExpanded(true);
+
+        // Show all windows, expand their tabs
+        for (int wi = 0; wi < windows.size(); wi++) {
+            var w = windows.get(wi);
+            if (!(w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp)) continue;
+            var windowNode = new TreeItem<SidebarItem>(new SidebarItem.WindowItem(w, wi));
+            windowNode.setExpanded(true);
+
+            for (var tab : tp.getTabs()) {
+                var tabTitle = tab.getText() != null ? tab.getText() : "Terminal";
+                var tabNode = new TreeItem<SidebarItem>(new SidebarItem.TabItem(tab, tabTitle));
+                tabNode.setExpanded(true);
+                addTerminalNodes(tabNode, tab.getContent());
+                windowNode.getChildren().add(tabNode);
+            }
+            root.getChildren().add(windowNode);
+        }
+
+        // If only one window, flatten: make tabs direct children of root
+        if (root.getChildren().size() == 1) {
+            var onlyWindow = root.getChildren().getFirst();
+            var flatRoot = new TreeItem<SidebarItem>(onlyWindow.getValue());
+            flatRoot.setExpanded(true);
+            flatRoot.getChildren().addAll(onlyWindow.getChildren());
+            sidebar.setRoot(flatRoot);
+        } else {
+            sidebar.setRoot(root);
+        }
+    }
+
+    /** Focus the first TerminalView found in a node tree. */
+    private static void focusFirstTerminal(Node node) {
+        if (node instanceof TerminalView v) { v.requestFocus(); }
+        else if (node instanceof SplitPane sp && !sp.getItems().isEmpty()) { focusFirstTerminal(sp.getItems().getFirst()); }
+    }
+
+    private static void addTerminalNodes(TreeItem<SidebarItem> parent, Node node) {
+        if (node instanceof TerminalView v) {
+            parent.getChildren().add(new TreeItem<>(new SidebarItem.TerminalItem(v, v.getTitle(), getTerminalCommand(v))));
+        } else if (node instanceof SplitPane sp) {
+            for (var item : sp.getItems()) addTerminalNodes(parent, item);
+        }
     }
 
     // --- Split Management ---
@@ -523,13 +591,20 @@ public class jhostty extends Application {
 
     // --- Terminal Factory ---
 
+    /** Create a terminal running the default shell. */
     private static TerminalView createTerminal() {
+        return createTerminal(shellCommand);
+    }
+
+    /** Create a terminal running the given command. */
+    private static TerminalView createTerminal(List<String> command) {
         try {
             var view = new TerminalView((columns, rows) -> {
-                var launcher = Shell.integrate(shellCommand, System.getenv());
+                var launcher = Shell.integrate(command, System.getenv());
                 return new PtyTerminal(launcher.command(), cwd, launcher.environment(), columns, rows);
             });
             view.getProperties().put(ZOOM_KEY, currentZoom);
+            view.getProperties().put(COMMAND_KEY, List.copyOf(command));
             view.setFont(resolveFont(currentFontFamily, currentZoom));
             view.setTheme(currentTheme);
 
@@ -539,6 +614,7 @@ public class jhostty extends Application {
                     activeTerminal = view;
                     var stg = findStageFor(view);
                     if (stg != null) { stg.setTitle(view.getTitle() != null ? view.getTitle() : "jhostty"); rebuildWindowMenus(); }
+                    rebuildAllSidebars();
                 }
             });
             view.titleProperty().addListener((_, _, title) -> {
@@ -546,6 +622,7 @@ public class jhostty extends Application {
                     var stg = findStageFor(view);
                     if (stg != null) { stg.setTitle(title != null ? title : "jhostty"); rebuildWindowMenus(); }
                 }
+                rebuildAllSidebars();
             });
 
             // Auto-remove on process exit
@@ -595,6 +672,13 @@ public class jhostty extends Application {
     }
 
     // --- Apply settings globally ---
+
+    /** Get the command a terminal was started with. */
+    @SuppressWarnings("unchecked")
+    private static List<String> getTerminalCommand(TerminalView v) {
+        var cmd = v.getProperties().get(COMMAND_KEY);
+        return cmd instanceof List<?> l ? (List<String>) l : shellCommand;
+    }
 
     private static double getTerminalSize(TerminalView v) {
         var s = v.getProperties().get(ZOOM_KEY);
@@ -708,7 +792,29 @@ public class jhostty extends Application {
                         -fx-border-color: %s;
                         -fx-border-width: 0.5 0 0 0;
                     }
-                    """.formatted(dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss));
+                    .jhostty-sidebar {
+                        -fx-background-color: %s;
+                        -fx-border-color: %s;
+                        -fx-border-width: 0 1 0 0;
+                    }
+                    .jhostty-sidebar .tree-cell {
+                        -fx-text-fill: %s;
+                        -fx-background-color: transparent;
+                        -fx-font-size: 12;
+                        -fx-padding: 3 8 3 4;
+                    }
+                    .jhostty-sidebar .tree-cell:selected {
+                        -fx-background-color: %s;
+                        -fx-text-fill: %s;
+                    }
+                    .jhostty-sidebar .tree-cell:empty {
+                        -fx-background-color: transparent;
+                    }
+                    .jhostty-sidebar .tree-disclosure-node .arrow {
+                        -fx-background-color: %s;
+                    }
+                    """.formatted(dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss,
+                            menuBgCss, borderCss, fgCss, selCss, selText, fgCss));
         } catch (IOException _) {}
     }
 
@@ -961,6 +1067,8 @@ public class jhostty extends Application {
             shellCommand = detectedShellCommand;
             savedWindowX = Double.NaN;
             savedWindowY = Double.NaN;
+            sidebarVisible = false;
+            savedLayout = null;
 
             config.getOptionalValue("theme", String.class).filter(s -> !s.isBlank()).ifPresent(v -> currentThemeName = v);
             config.getOptionalValue("font", String.class).filter(s -> !s.isBlank()).ifPresent(v -> currentFontFamily = v);
@@ -969,6 +1077,8 @@ public class jhostty extends Application {
             config.getOptionalValue("shell", String.class).filter(s -> !s.isBlank()).ifPresent(v -> shellCommand = List.of(v.split("\\s+")));
             config.getOptionalValue("window-x", Double.class).ifPresent(v -> savedWindowX = v);
             config.getOptionalValue("window-y", Double.class).ifPresent(v -> savedWindowY = v);
+            config.getOptionalValue("sidebar", Boolean.class).ifPresent(v -> sidebarVisible = v);
+            config.getOptionalValue("layout", String.class).filter(s -> !s.isBlank()).ifPresent(v -> savedLayout = v);
 
             // Resolve theme name to TerminalTheme
             for (var t : themes()) {
@@ -1010,7 +1120,7 @@ public class jhostty extends Application {
 
 
     private static void saveState() {
-        if (configDir == null) return;
+        if (configDir == null || shuttingDown) return;
         // Capture position from first open window if available
         if (!windows.isEmpty()) {
             var w = windows.getFirst();
@@ -1032,6 +1142,9 @@ public class jhostty extends Application {
             // window-width and window-height are user-config only, not auto-saved
             appendProp(sb, "window-x", savedWindowX);
             appendProp(sb, "window-y", savedWindowY);
+            sb.append("sidebar=").append(sidebarVisible).append('\n');
+            captureLayout(); // update lastGoodLayout
+            sb.append("layout=").append(lastGoodLayout != null ? lastGoodLayout : "").append('\n');
             // Atomic write
             var tmp = Files.createTempFile(configDir, "jhostty-state", ".tmp");
             Files.writeString(tmp, sb.toString());
@@ -1041,6 +1154,366 @@ public class jhostty extends Application {
             System.err.println("[jhostty] failed to save state: " + e.getMessage());
         }
     }
+    // --- Layout save/restore ---
+    // Format: windows separated by ";", tabs within a window by ","
+    // Each tab is a split descriptor: "1" (single), "V2" (vertical 2-pane), "H3" (horizontal 3-pane)
+    // Followed by commands: "V2[/bin/fish|/usr/bin/top]" or "1[/bin/fish]" for single
+    // Nested splits not yet encoded — flattened to the outer orientation.
+
+    private static String lastGoodLayout = null; // last non-empty layout captured
+
+    private static String captureLayout() {
+        var sb = new StringBuilder();
+        for (int wi = 0; wi < windows.size(); wi++) {
+            if (wi > 0) sb.append(';');
+            var w = windows.get(wi);
+            if (w.getScene() == null) { sb.append("1"); continue; }
+            if (!(w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp)) {
+                sb.append("1");
+                continue;
+            }
+            for (int ti = 0; ti < tp.getTabs().size(); ti++) {
+                if (ti > 0) sb.append(',');
+                captureNode(sb, tp.getTabs().get(ti).getContent());
+            }
+        }
+        var result = sb.toString();
+        if (!result.isBlank()) lastGoodLayout = result;
+        debug("captureLayout: " + result);
+        return result;
+    }
+
+    private static void captureNode(StringBuilder sb, Node node) {
+        if (node instanceof TerminalView v) {
+            sb.append("1[").append(encodeCommand(getTerminalCommand(v))).append(']');
+        } else if (node instanceof SplitPane sp) {
+            var orient = sp.getOrientation() == Orientation.VERTICAL ? "V" : "H";
+            var terminals = new ArrayList<TerminalView>();
+            collectTerminals(sp, terminals);
+            sb.append(orient).append(terminals.size());
+            sb.append('[');
+            for (int i = 0; i < terminals.size(); i++) {
+                if (i > 0) sb.append('|');
+                sb.append(encodeCommand(getTerminalCommand(terminals.get(i))));
+            }
+            sb.append(']');
+        } else {
+            sb.append("1");
+        }
+    }
+
+    private static void collectTerminals(Node node, List<TerminalView> out) {
+        if (node instanceof TerminalView v) out.add(v);
+        else if (node instanceof SplitPane sp) sp.getItems().forEach(n -> collectTerminals(n, out));
+    }
+
+    private static String encodeCommand(List<String> cmd) {
+        // Encode spaces and special chars: join with \x00, escape | and other delimiters
+        return String.join(" ", cmd)
+                .replace("\\", "\\\\")
+                .replace("|", "\\p")
+                .replace(",", "\\c")
+                .replace(";", "\\s")
+                .replace("[", "\\o")
+                .replace("]", "\\e");
+    }
+
+    private static String decodeCommand(String encoded) {
+        return encoded
+                .replace("\\e", "]")
+                .replace("\\o", "[")
+                .replace("\\s", ";")
+                .replace("\\c", ",")
+                .replace("\\p", "|")
+                .replace("\\\\", "\\");
+    }
+
+    private static List<String> parseCommand(String encoded) {
+        var decoded = decodeCommand(encoded);
+        return decoded.isBlank() ? shellCommand : List.of(decoded.split(" "));
+    }
+
+    private static void restoreLayout() {
+        var layout = savedLayout;
+        savedLayout = null;
+        if (layout == null || layout.isBlank()) {
+            newWindow();
+            return;
+        }
+        debug("restoring layout: " + layout);
+        var windowDescs = layout.split(";");
+        for (var windowDesc : windowDescs) {
+            var stage = newWindowEmpty();
+            if (stage == null) { newWindow(); continue; }
+            var bp = (BorderPane) stage.getScene().getRoot();
+            var tabs = (TabPane) bp.getCenter();
+            var tabDescs = splitTabDescs(windowDesc);
+            for (var tabDesc : tabDescs) {
+                restoreTab(tabs, tabDesc.trim());
+            }
+            if (tabs.getTabs().isEmpty()) newTab(tabs); // fallback
+        }
+    }
+
+    /** Split on commas that are not inside brackets. */
+    private static List<String> splitTabDescs(String windowDesc) {
+        var result = new ArrayList<String>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < windowDesc.length(); i++) {
+            var ch = windowDesc.charAt(i);
+            if (ch == '[') depth++;
+            else if (ch == ']') depth--;
+            else if (ch == ',' && depth == 0) {
+                result.add(windowDesc.substring(start, i));
+                start = i + 1;
+            }
+        }
+        result.add(windowDesc.substring(start));
+        return result;
+    }
+
+    private static void restoreTab(TabPane tabPane, String desc) {
+        if (desc.isEmpty()) { newTab(tabPane); return; }
+
+        // Parse: "1[cmd]" or "V2[cmd1|cmd2]" or "H3[cmd1|cmd2|cmd3]"
+        var bracketIdx = desc.indexOf('[');
+        if (bracketIdx < 0) {
+            // No command info, just create default tabs
+            newTab(tabPane);
+            return;
+        }
+        var prefix = desc.substring(0, bracketIdx);
+        var cmdsPart = desc.substring(bracketIdx + 1, desc.length() - 1);
+        var cmds = splitCommands(cmdsPart);
+
+        if (prefix.equals("1")) {
+            // Single terminal
+            var cmd = cmds.isEmpty() ? shellCommand : parseCommand(cmds.getFirst());
+            var view = createTerminal(cmd);
+            if (view == null) return;
+            var tab = new Tab();
+            tab.textProperty().bind(view.titleProperty());
+            tab.setContent(view);
+            tab.setClosable(true);
+            tab.setOnClosed(_ -> closeTerminalsIn(view));
+            tabPane.getTabs().add(tab);
+            tabPane.getSelectionModel().select(tab);
+        } else {
+            // Split: V2, H3, etc.
+            var orientation = prefix.startsWith("V") ? Orientation.VERTICAL : Orientation.HORIZONTAL;
+            var count = cmds.size();
+            if (count < 2) { newTab(tabPane); return; }
+
+            var views = new ArrayList<TerminalView>();
+            for (var cmdStr : cmds) {
+                var cmd = parseCommand(cmdStr);
+                var v = createTerminal(cmd);
+                if (v != null) views.add(v);
+            }
+            if (views.isEmpty()) { newTab(tabPane); return; }
+            if (views.size() == 1) {
+                var tab = new Tab();
+                tab.textProperty().bind(views.getFirst().titleProperty());
+                tab.setContent(views.getFirst());
+                tab.setClosable(true);
+                tab.setOnClosed(_ -> closeTerminalsIn(views.getFirst()));
+                tabPane.getTabs().add(tab);
+            } else {
+                var sp = new SplitPane();
+                sp.setOrientation(orientation);
+                views.forEach(v -> sp.getItems().add(v));
+                evenDividers(sp);
+                var tab = new Tab();
+                tab.textProperty().bind(views.getFirst().titleProperty());
+                tab.setContent(sp);
+                tab.setClosable(true);
+                tab.setOnClosed(_ -> closeTerminalsIn(sp));
+                tabPane.getTabs().add(tab);
+            }
+        }
+    }
+
+    /** Split on | that are not escaped. */
+    private static List<String> splitCommands(String cmdsPart) {
+        var result = new ArrayList<String>();
+        int start = 0;
+        for (int i = 0; i < cmdsPart.length(); i++) {
+            if (cmdsPart.charAt(i) == '|' && (i == 0 || cmdsPart.charAt(i - 1) != '\\')) {
+                result.add(cmdsPart.substring(start, i));
+                start = i + 1;
+            }
+        }
+        result.add(cmdsPart.substring(start));
+        return result;
+    }
+
+    /** Create a new window without adding an initial tab (for layout restore). */
+    private static Stage newWindowEmpty() {
+        // Temporarily suppress the newTab call by creating the window structure manually
+        var tabs = new TabPane();
+        tabs.getStyleClass().add("jhostty-tabs");
+
+        var menuBar = createMenuBar(tabs);
+        if (IS_MAC) {
+            menuBar.setUseSystemMenuBar(true);
+            menuBar.setMaxHeight(0);
+            menuBar.setPrefHeight(0);
+            menuBar.setMinHeight(0);
+        }
+
+        var sidebar = new TreeView<SidebarItem>();
+        sidebar.setShowRoot(false);
+        sidebar.getStyleClass().add("jhostty-sidebar");
+        sidebar.setPrefWidth(200);
+        sidebar.setMinWidth(120);
+        sidebar.setMaxWidth(400);
+        sidebar.setCellFactory(_ -> new TreeCell<>() {
+            private final Label icon = new Label();
+            { icon.setStyle("-fx-font-size: 11; -fx-padding: 0 4 0 0;"); }
+            @Override protected void updateItem(SidebarItem item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) { setText(null); setGraphic(null); return; }
+                setText(item.label());
+                switch (item) {
+                    case SidebarItem.WindowItem _ ->  icon.setText("\u25A1");
+                    case SidebarItem.TabItem _ ->     icon.setText("\u25AB");
+                    case SidebarItem.TerminalItem _ -> icon.setText("\u276F");
+                }
+                icon.setTextFill(getTextFill());
+                setGraphic(icon);
+                if (item instanceof SidebarItem.TerminalItem ti && ti.view() == activeTerminal) {
+                    setStyle("-fx-font-weight: bold;");
+                } else {
+                    setStyle(null);
+                }
+            }
+        });
+        sidebar.setOnMouseClicked(e -> {
+            if (e.getClickCount() < 2) return;
+            var sel = sidebar.getSelectionModel().getSelectedItem();
+            if (sel == null) return;
+            switch (sel.getValue()) {
+                case SidebarItem.TerminalItem ti -> {
+                    var stg = findStageFor(ti.view());
+                    if (stg != null) { stg.toFront(); stg.requestFocus(); }
+                    var tp2 = findTabPane(ti.view());
+                    if (tp2 != null) {
+                        var tab = findTab(ti.view());
+                        if (tab != null) tp2.getSelectionModel().select(tab);
+                    }
+                    Platform.runLater(() -> ti.view().requestFocus());
+                }
+                case SidebarItem.TabItem ti -> {
+                    var tp2 = findTabPaneForTab(ti.tab());
+                    if (tp2 != null) {
+                        tp2.getSelectionModel().select(ti.tab());
+                        var stg = findStage(tp2);
+                        if (stg != null) { stg.toFront(); stg.requestFocus(); }
+                        Platform.runLater(() -> focusFirstTerminal(ti.tab().getContent()));
+                    }
+                }
+                case SidebarItem.WindowItem wi -> {
+                    wi.stage().toFront();
+                    wi.stage().requestFocus();
+                }
+            }
+        });
+
+        var root = new BorderPane();
+        root.setTop(menuBar);
+        root.setCenter(tabs);
+
+        var scene = new Scene(root, 1000, 700);
+        if (cssUrl != null) scene.getStylesheets().add(cssUrl);
+
+        updateTabBarVisibility(tabs);
+        tabs.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) _ -> {
+            updateTabBarVisibility(tabs);
+            rebuildAllSidebars();
+        });
+        tabs.getSelectionModel().selectedItemProperty().addListener((_, _, _) -> rebuildAllSidebars());
+
+        var stage = new Stage();
+        stage.setTitle("jhostty");
+        stage.setScene(scene);
+        stage.setOnCloseRequest(_ -> closeAllTerminalsIn(tabs));
+        stage.setOnHidden(_ -> {
+            savedWindowX = stage.getX();
+            savedWindowY = stage.getY();
+            windows.remove(stage);
+            windowMenus.removeIf(m -> m.getParentMenu() == null && m.getParentPopup() == null);
+            sidebarsByWindow.remove(stage);
+            rebuildWindowMenus();
+            rebuildAllSidebars();
+            if (windows.isEmpty()) {
+                if (!shuttingDown) saveState(); // normal close of last window
+                Platform.exit();
+            }
+        });
+
+        scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (debug && e.isShortcutDown()) {
+                debug("KeyEvent: code=" + e.getCode() + " meta=" + e.isMetaDown()
+                        + " ctrl=" + e.isControlDown() + " shift=" + e.isShiftDown()
+                        + " alt=" + e.isAltDown() + " shortcut=" + e.isShortcutDown());
+            }
+            if (!e.isShortcutDown()) return;
+            switch (e.getCode()) {
+                case Q -> { quit(); e.consume(); }
+                case N -> { newWindow(); e.consume(); }
+                case T -> { newTab(tabs); e.consume(); }
+                case D -> { if (e.isShiftDown()) splitActive(Orientation.HORIZONTAL); else splitActive(Orientation.VERTICAL); e.consume(); }
+                case W -> { closeActive(tabs, stage); e.consume(); }
+                case BACK_SLASH -> { toggleSidebar(); e.consume(); }
+                case EQUALS, PLUS, ADD -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); e.consume(); }
+                case MINUS, SUBTRACT -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); e.consume(); }
+                case DIGIT0, NUMPAD0 -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); e.consume(); }
+                default -> {}
+            }
+        });
+        scene.addEventFilter(ScrollEvent.SCROLL, e -> {
+            if (debug) {
+                debug("ScrollEvent: deltaX=" + e.getDeltaX() + " deltaY=" + e.getDeltaY()
+                        + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown()
+                        + " shift=" + e.isShiftDown() + " alt=" + e.isAltDown()
+                        + " shortcut=" + e.isShortcutDown() + " direct=" + e.isDirect()
+                        + " inertia=" + e.isInertia() + " touchCount=" + e.getTouchCount());
+            }
+            if (e.isShortcutDown() && e.getDeltaY() != 0) {
+                var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
+                if (target == null) target = activeTerminal;
+                if (target != null) { zoomTerminal(target, e.getDeltaY() > 0 ? 1 : -1); e.consume(); }
+            }
+        });
+        scene.addEventFilter(ZoomEvent.ZOOM, e -> {
+            if (debug) {
+                debug("ZoomEvent: factor=" + e.getZoomFactor() + " total=" + e.getTotalZoomFactor()
+                        + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown()
+                        + " shift=" + e.isShiftDown() + " alt=" + e.isAltDown()
+                        + " shortcut=" + e.isShortcutDown() + " direct=" + e.isDirect()
+                        + " inertia=" + e.isInertia());
+            }
+            if (e.isShortcutDown()) {
+                var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
+                if (target == null) target = activeTerminal;
+                if (target != null) { zoomTerminal(target, e.getZoomFactor() > 1 ? 1 : -1); e.consume(); }
+            }
+        });
+
+        if (!Double.isNaN(savedWindowX)) stage.setX(savedWindowX);
+        if (!Double.isNaN(savedWindowY)) stage.setY(savedWindowY);
+        windows.add(stage);
+        sidebarsByWindow.put(stage, sidebar);
+        stage.show();
+        if (sidebarVisible) {
+            root.setLeft(sidebar);
+            rebuildAllSidebars();
+        }
+        rebuildWindowMenus();
+        return stage;
+    }
+
     /** Quote a file path for safe pasting into a shell. */
     private static String quotePath(String path) {
         if (!path.contains(" ") && !path.contains("'") && !path.contains("\"")) return path;
