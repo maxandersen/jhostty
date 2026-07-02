@@ -1,10 +1,10 @@
 ///usr/bin/env jbang "$0" "$@" ; exit $?
 //JAVA 25
-//DEPS io.github.vlaaad:ghosttyfx:0.1.169
 //DEPS org.jetbrains.pty4j:pty4j:0.13.12
 //DEPS org.slf4j:slf4j-nop:2.0.13
 //DEPS io.smallrye.config:smallrye-config:3.12.4
 //RUNTIME_OPTIONS --enable-native-access=ALL-UNNAMED --enable-native-access=javafx.graphics
+//DEPS io.github.vlaaad:ghosttyfx:0.1.173
 
 import java.lang.foreign.*;
 
@@ -34,6 +34,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
+import javafx.animation.*;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Orientation;
@@ -86,6 +87,7 @@ public class jhostty extends Application {
     private static final List<Stage> windows = new ArrayList<>();
     private static final List<Menu> windowMenus = new ArrayList<>();
     private static boolean sidebarVisible = false;
+    private static double sidebarDividerPos = 0.18; // default sidebar width ratio
     private static boolean shuttingDown = false;
     private static String savedLayout = null; // restored from state, consumed on first use
     private static final Map<Stage, TreeView<SidebarItem>> sidebarsByWindow = new ConcurrentHashMap<>();
@@ -112,7 +114,58 @@ public class jhostty extends Application {
             }
             @Override public String toString() { return label(); }
         }
+        record SectionHeader(String title) implements SidebarItem {
+            public String label() { return title; }
+            @Override public String toString() { return label(); }
+        }
+        record ZmxSessionItem(ZmxSession session) implements SidebarItem {
+            public String label() { return session.displayLabel(); }
+            @Override public String toString() { return label(); }
+        }
     }
+
+    // --- zmx integration ---
+
+    record ZmxSession(String name, int pid, int clients, String startDir, String cwd, String cmd, boolean ended, int exitCode) {
+        String displayLabel() {
+            var status = ended ? " \u2718" : (clients > 0 ? " (" + clients + ")" : "");
+            return friendlyName() + status;
+        }
+
+        String friendlyName() {
+            var displayName = name;
+            // Derive a useful name from the directory for UUID-style names
+            if (isGeneratedName()) {
+                var dir = cwd != null && !cwd.isBlank() ? cwd : startDir;
+                if (dir != null && !dir.isBlank()) {
+                    var p = Path.of(dir);
+                    // Use last 2 path components for context (e.g. "jbang/numid")
+                    var home = Path.of(System.getProperty("user.home", ""));
+                    if (p.equals(home)) {
+                        displayName = "~";
+                    } else if (p.startsWith(home) && p.getNameCount() > home.getNameCount()) {
+                        var rel = home.relativize(p);
+                        var count = rel.getNameCount();
+                        displayName = count >= 2
+                                ? rel.getName(count - 2) + "/" + rel.getName(count - 1)
+                                : rel.getFileName().toString();
+                    } else {
+                        displayName = p.getFileName().toString();
+                    }
+                }
+            }
+            return displayName;
+        }
+
+        /** True if the name looks auto-generated (UUID pattern). */
+        boolean isGeneratedName() {
+            return name.matches(".*[0-9a-f]{8}-[0-9a-f]{4}-.*");
+        }
+    }
+
+    private static List<ZmxSession> zmxSessions = List.of();
+    private static volatile boolean zmxAvailable = false;
+    private static Timeline zmxRefreshTimer;
 
     public static void main(String[] args) {
         // Ensure uncaught exceptions are visible
@@ -159,6 +212,7 @@ public class jhostty extends Application {
         } catch (IOException _) {}
 
         Platform.setImplicitExit(false); // we handle quit explicitly
+        initZmx();
         restoreLayout();
         if (IS_MAC) {
             Platform.runLater(() -> setMacAppName("jhostty"));
@@ -170,12 +224,12 @@ public class jhostty extends Application {
         // Save while all windows are still alive, then block further saves
         saveState();
         shuttingDown = true;
+        if (zmxRefreshTimer != null) zmxRefreshTimer.stop();
         // Now close all windows
         var allWindows = new ArrayList<>(windows);
         for (var w : allWindows) {
-            if (w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp) {
-                closeAllTerminalsIn(tp);
-            }
+            var tp = getTabPane(w);
+            if (tp != null) closeAllTerminalsIn(tp);
             w.close();
         }
         Platform.exit();
@@ -184,8 +238,8 @@ public class jhostty extends Application {
     private static Stage newWindow() {
         var stage = newWindowEmpty();
         if (stage == null) return null;
-        var bp = (BorderPane) stage.getScene().getRoot();
-        var tabs = (TabPane) bp.getCenter();
+        var tabs = getTabPane(stage);
+        if (tabs == null) return null;
         newTab(tabs);
         return stage;
     }
@@ -214,7 +268,26 @@ public class jhostty extends Application {
         closeItem.setAccelerator(KeyCombination.keyCombination("Shortcut+W"));
         closeItem.setOnAction(_ -> { if (activeTerminal != null) closeActive(findTabPane(activeTerminal), findStage(findTabPane(activeTerminal))); });
 
-        var shellMenu = new Menu("Shell", null, newWindowItem, newTabItem, splitH, splitV, new SeparatorMenuItem(), closeItem);
+        // zmx submenu
+        var zmxMenu = new Menu("Attach zmx Session");
+        zmxMenu.setOnShowing(_ -> {
+            zmxMenu.getItems().clear();
+            if (!zmxAvailable) {
+                zmxMenu.getItems().add(new MenuItem("(zmx not found)"));
+            } else if (zmxSessions.isEmpty()) {
+                zmxMenu.getItems().add(new MenuItem("(no sessions)"));
+            } else {
+                for (var s : zmxSessions) {
+                    if (s.ended()) continue;
+                    var item = new MenuItem(s.displayLabel());
+                    item.setOnAction(_ -> attachZmxSession(s.name()));
+                    zmxMenu.getItems().add(item);
+                }
+                if (zmxMenu.getItems().isEmpty()) zmxMenu.getItems().add(new MenuItem("(no live sessions)"));
+            }
+        });
+
+        var shellMenu = new Menu("Shell", null, newWindowItem, newTabItem, splitH, splitV, new SeparatorMenuItem(), zmxMenu, new SeparatorMenuItem(), closeItem);
 
         // Window menu
         var windowMenu = new Menu("Window");
@@ -327,7 +400,7 @@ public class jhostty extends Application {
         var view = createTerminal();
         if (view == null) return;
         var tab = new Tab();
-        tab.textProperty().bind(view.titleProperty());
+        bindTabTitle(tab, view);
         tab.setContent(view);
         tab.setClosable(true);
         tab.setOnClosed(_ -> closeTerminalsIn(view));
@@ -358,8 +431,8 @@ public class jhostty extends Application {
         }
         // Fallback: find via windows
         for (var w : windows) {
-            var root = w.getScene().getRoot();
-            if (root instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp) return tp;
+            var tp = getTabPane(w);
+            if (tp != null) return tp;
         }
         return null;
     }
@@ -388,24 +461,62 @@ public class jhostty extends Application {
         sidebarVisible = !sidebarVisible;
         debug("toggleSidebar: visible=" + sidebarVisible);
         for (var w : windows) {
-            if (w.getScene().getRoot() instanceof BorderPane bp) {
+            if (w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof SplitPane sp) {
+                var sidebar = sidebarsByWindow.get(w);
+                if (sidebar == null) continue;
                 if (sidebarVisible) {
-                    var sidebar = sidebarsByWindow.get(w);
-                    if (sidebar != null) bp.setLeft(sidebar);
+                    showSidebarIn(sp, sidebar);
                 } else {
-                    bp.setLeft(null);
+                    hideSidebarIn(sp, sidebar);
                 }
             }
         }
         if (sidebarVisible) rebuildAllSidebars();
     }
 
+    /** Extract the TabPane from a window's scene graph (handles SplitPane wrapper). */
+    private static TabPane getTabPane(Stage w) {
+        if (w.getScene() == null) return null;
+        if (!(w.getScene().getRoot() instanceof BorderPane bp)) return null;
+        var center = bp.getCenter();
+        if (center instanceof TabPane tp) return tp;
+        if (center instanceof SplitPane sp) {
+            for (var item : sp.getItems()) {
+                if (item instanceof TabPane tp) return tp;
+            }
+        }
+        return null;
+    }
+
+    /** Extract the content SplitPane from a window (the one holding sidebar + tabs). */
+    private static SplitPane getContentSplit(Stage w) {
+        if (w.getScene() == null) return null;
+        if (w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof SplitPane sp) return sp;
+        return null;
+    }
+
+    private static void showSidebarIn(SplitPane sp, TreeView<SidebarItem> sidebar) {
+        if (!sp.getItems().contains(sidebar)) {
+            sp.getItems().addFirst(sidebar);
+            Platform.runLater(() -> sp.setDividerPositions(sidebarDividerPos));
+        }
+    }
+
+    private static void hideSidebarIn(SplitPane sp, TreeView<SidebarItem> sidebar) {
+        if (sp.getItems().contains(sidebar)) {
+            // Save divider position before hiding
+            if (sp.getDividers().size() > 0) {
+                sidebarDividerPos = sp.getDividerPositions()[0];
+            }
+            sp.getItems().remove(sidebar);
+        }
+    }
+
     /** Find the TabPane that contains a given Tab. */
     private static TabPane findTabPaneForTab(Tab tab) {
         for (var w : windows) {
-            if (w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp) {
-                if (tp.getTabs().contains(tab)) return tp;
-            }
+            var tp = getTabPane(w);
+            if (tp != null && tp.getTabs().contains(tab)) return tp;
         }
         return null;
     }
@@ -420,7 +531,8 @@ public class jhostty extends Application {
             if (!sidebarVisible) return;
             for (var w : windows) {
                 var sidebar = sidebarsByWindow.get(w);
-                if (sidebar != null && w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp) {
+                var tp = getTabPane(w);
+                if (sidebar != null && tp != null) {
                     rebuildSidebar(sidebar, w, tp);
                 }
             }
@@ -437,7 +549,8 @@ public class jhostty extends Application {
         // Show all windows, expand their tabs
         for (int wi = 0; wi < windows.size(); wi++) {
             var w = windows.get(wi);
-            if (!(w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp)) continue;
+            var tp = getTabPane(w);
+            if (tp == null) continue;
             var windowNode = new TreeItem<SidebarItem>(new SidebarItem.WindowItem(w, wi));
             windowNode.setExpanded(true);
 
@@ -452,15 +565,31 @@ public class jhostty extends Application {
         }
 
         // If only one window, flatten: make tabs direct children of root
+        TreeItem<SidebarItem> finalRoot;
         if (root.getChildren().size() == 1) {
             var onlyWindow = root.getChildren().getFirst();
-            var flatRoot = new TreeItem<SidebarItem>(onlyWindow.getValue());
-            flatRoot.setExpanded(true);
-            flatRoot.getChildren().addAll(onlyWindow.getChildren());
-            sidebar.setRoot(flatRoot);
+            finalRoot = new TreeItem<>(onlyWindow.getValue());
+            finalRoot.setExpanded(true);
+            finalRoot.getChildren().addAll(onlyWindow.getChildren());
         } else {
-            sidebar.setRoot(root);
+            finalRoot = root;
         }
+
+        // Add zmx sessions section
+        if (zmxAvailable && !zmxSessions.isEmpty()) {
+            var zmxHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader("zmx sessions"));
+            zmxHeader.setExpanded(true);
+            for (var session : zmxSessions) {
+                if (!session.ended()) { // only show live sessions
+                    zmxHeader.getChildren().add(new TreeItem<>(new SidebarItem.ZmxSessionItem(session)));
+                }
+            }
+            if (!zmxHeader.getChildren().isEmpty()) {
+                finalRoot.getChildren().add(zmxHeader);
+            }
+        }
+
+        sidebar.setRoot(finalRoot);
     }
 
     /** Focus the first TerminalView found in a node tree. */
@@ -593,14 +722,17 @@ public class jhostty extends Application {
 
     /** Create a terminal running the default shell. */
     private static TerminalView createTerminal() {
-        return createTerminal(shellCommand);
+        return createTerminal(shellCommand, System.getenv());
     }
 
-    /** Create a terminal running the given command. */
     private static TerminalView createTerminal(List<String> command) {
+        return createTerminal(command, System.getenv());
+    }
+
+    private static TerminalView createTerminal(List<String> command, Map<String, String> env) {
         try {
             var view = new TerminalView((columns, rows) -> {
-                var launcher = Shell.integrate(command, System.getenv());
+                var launcher = Shell.integrate(command, env);
                 return new PtyTerminal(launcher.command(), cwd, launcher.environment(), columns, rows);
             });
             view.getProperties().put(ZOOM_KEY, currentZoom);
@@ -678,6 +810,34 @@ public class jhostty extends Application {
     private static List<String> getTerminalCommand(TerminalView v) {
         var cmd = v.getProperties().get(COMMAND_KEY);
         return cmd instanceof List<?> l ? (List<String>) l : shellCommand;
+    }
+
+    /** Bind a tab's text to a terminal's title, with a fallback based on the command. */
+    private static void bindTabTitle(Tab tab, TerminalView view) {
+        var cmd = getTerminalCommand(view);
+        var fallback = commandBaseName(cmd);
+        // Set initial title
+        var title = view.getTitle();
+        tab.setText(title != null && !title.isBlank() ? title : fallback);
+        // Update when title changes
+        view.titleProperty().addListener((_, _, newTitle) -> {
+            tab.setText(newTitle != null && !newTitle.isBlank() ? newTitle : fallback);
+        });
+    }
+
+    /** Derive a short display name from a command. */
+    private static String commandBaseName(List<String> cmd) {
+        if (cmd == null || cmd.isEmpty()) return "Terminal";
+        var exe = Path.of(cmd.getFirst()).getFileName().toString();
+        if (exe.equals("zmx") && cmd.size() >= 3 && cmd.get(1).equals("attach")) {
+            var sessionName = cmd.get(2);
+            // Try to find a friendly name from the cached zmx sessions
+            for (var s : zmxSessions) {
+                if (s.name().equals(sessionName)) return "zmx: " + s.friendlyName();
+            }
+            return "zmx: " + sessionName;
+        }
+        return cmd.size() > 1 ? exe + " " + String.join(" ", cmd.subList(1, cmd.size())) : exe;
     }
 
     private static double getTerminalSize(TerminalView v) {
@@ -792,10 +952,12 @@ public class jhostty extends Application {
                         -fx-border-color: %s;
                         -fx-border-width: 0.5 0 0 0;
                     }
+                    .jhostty-content-split > .split-pane-divider {
+                        -fx-background-color: %s;
+                        -fx-padding: 0 1 0 1;
+                    }
                     .jhostty-sidebar {
                         -fx-background-color: %s;
-                        -fx-border-color: %s;
-                        -fx-border-width: 0 1 0 0;
                     }
                     .jhostty-sidebar .tree-cell {
                         -fx-text-fill: %s;
@@ -814,13 +976,14 @@ public class jhostty extends Application {
                         -fx-background-color: %s;
                     }
                     """.formatted(dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss,
-                            menuBgCss, borderCss, fgCss, selCss, selText, fgCss));
+                            borderCss, menuBgCss, fgCss, selCss, selText, fgCss));
         } catch (IOException _) {}
     }
 
     private static void forEachTerminal(java.util.function.Consumer<TerminalView> action) {
         for (var w : windows) {
-            if (w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp) {
+            var tp = getTabPane(w);
+            if (tp != null) {
                 for (var tab : tp.getTabs()) forEachTerminalIn(tab.getContent(), action);
             }
         }
@@ -830,9 +993,11 @@ public class jhostty extends Application {
     private static SplitPane findParentSplitPane(Node node) {
         var p = node.getParent();
         while (p != null) {
-            if (p instanceof SplitPane sp && sp.getItems().contains(node)) return sp;
+            if (p instanceof SplitPane sp && sp.getItems().contains(node)
+                    && !sp.getStyleClass().contains("jhostty-content-split")) return sp;
             // SplitPane wraps items in SplitPaneSkin$Content — check if parent's parent is SplitPane
-            if (p.getParent() instanceof SplitPane sp && sp.getItems().contains(node)) return sp;
+            if (p.getParent() instanceof SplitPane sp && sp.getItems().contains(node)
+                    && !sp.getStyleClass().contains("jhostty-content-split")) return sp;
             node = p;
             p = p.getParent();
         }
@@ -1078,6 +1243,7 @@ public class jhostty extends Application {
             config.getOptionalValue("window-x", Double.class).ifPresent(v -> savedWindowX = v);
             config.getOptionalValue("window-y", Double.class).ifPresent(v -> savedWindowY = v);
             config.getOptionalValue("sidebar", Boolean.class).ifPresent(v -> sidebarVisible = v);
+            config.getOptionalValue("sidebar-width", Double.class).ifPresent(v -> sidebarDividerPos = v);
             config.getOptionalValue("layout", String.class).filter(s -> !s.isBlank()).ifPresent(v -> savedLayout = v);
 
             // Resolve theme name to TerminalTheme
@@ -1143,6 +1309,15 @@ public class jhostty extends Application {
             appendProp(sb, "window-x", savedWindowX);
             appendProp(sb, "window-y", savedWindowY);
             sb.append("sidebar=").append(sidebarVisible).append('\n');
+            // Capture current divider position from first visible sidebar
+            for (var w : windows) {
+                var sp = getContentSplit(w);
+                if (sp != null && sp.getDividers().size() > 0 && sidebarVisible) {
+                    sidebarDividerPos = sp.getDividerPositions()[0];
+                    break;
+                }
+            }
+            sb.append("sidebar-width=").append(String.format("%.3f", sidebarDividerPos)).append('\n');
             captureLayout(); // update lastGoodLayout
             sb.append("layout=").append(lastGoodLayout != null ? lastGoodLayout : "").append('\n');
             // Atomic write
@@ -1168,10 +1343,8 @@ public class jhostty extends Application {
             if (wi > 0) sb.append(';');
             var w = windows.get(wi);
             if (w.getScene() == null) { sb.append("1"); continue; }
-            if (!(w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof TabPane tp)) {
-                sb.append("1");
-                continue;
-            }
+            var tp = getTabPane(w);
+            if (tp == null) { sb.append("1"); continue; }
             for (int ti = 0; ti < tp.getTabs().size(); ti++) {
                 if (ti > 0) sb.append(',');
                 captureNode(sb, tp.getTabs().get(ti).getContent());
@@ -1233,6 +1406,18 @@ public class jhostty extends Application {
         return decoded.isBlank() ? shellCommand : List.of(decoded.split(" "));
     }
 
+    /** Create a terminal with zmx env vars cleaned if the command is zmx. */
+    private static TerminalView createTerminalClean(List<String> cmd) {
+        if (cmd.size() >= 2 && Path.of(cmd.getFirst()).getFileName().toString().equals("zmx")) {
+            var env = new java.util.HashMap<>(System.getenv());
+            env.remove("ZMX_SESSION");
+            env.remove("ZMX_SESSION_PREFIX");
+            env.remove("ZMX_DIR");
+            return createTerminal(cmd, env);
+        }
+        return createTerminal(cmd);
+    }
+
     private static void restoreLayout() {
         var layout = savedLayout;
         savedLayout = null;
@@ -1245,8 +1430,8 @@ public class jhostty extends Application {
         for (var windowDesc : windowDescs) {
             var stage = newWindowEmpty();
             if (stage == null) { newWindow(); continue; }
-            var bp = (BorderPane) stage.getScene().getRoot();
-            var tabs = (TabPane) bp.getCenter();
+            var tabs = getTabPane(stage);
+            if (tabs == null) { newWindow(); continue; }
             var tabDescs = splitTabDescs(windowDesc);
             for (var tabDesc : tabDescs) {
                 restoreTab(tabs, tabDesc.trim());
@@ -1290,10 +1475,10 @@ public class jhostty extends Application {
         if (prefix.equals("1")) {
             // Single terminal
             var cmd = cmds.isEmpty() ? shellCommand : parseCommand(cmds.getFirst());
-            var view = createTerminal(cmd);
+            var view = createTerminalClean(cmd);
             if (view == null) return;
             var tab = new Tab();
-            tab.textProperty().bind(view.titleProperty());
+            bindTabTitle(tab, view);
             tab.setContent(view);
             tab.setClosable(true);
             tab.setOnClosed(_ -> closeTerminalsIn(view));
@@ -1308,13 +1493,13 @@ public class jhostty extends Application {
             var views = new ArrayList<TerminalView>();
             for (var cmdStr : cmds) {
                 var cmd = parseCommand(cmdStr);
-                var v = createTerminal(cmd);
+                var v = createTerminalClean(cmd);
                 if (v != null) views.add(v);
             }
             if (views.isEmpty()) { newTab(tabPane); return; }
             if (views.size() == 1) {
                 var tab = new Tab();
-                tab.textProperty().bind(views.getFirst().titleProperty());
+                bindTabTitle(tab, views.getFirst());
                 tab.setContent(views.getFirst());
                 tab.setClosable(true);
                 tab.setOnClosed(_ -> closeTerminalsIn(views.getFirst()));
@@ -1325,7 +1510,7 @@ public class jhostty extends Application {
                 views.forEach(v -> sp.getItems().add(v));
                 evenDividers(sp);
                 var tab = new Tab();
-                tab.textProperty().bind(views.getFirst().titleProperty());
+                bindTabTitle(tab, views.getFirst());
                 tab.setContent(sp);
                 tab.setClosable(true);
                 tab.setOnClosed(_ -> closeTerminalsIn(sp));
@@ -1365,9 +1550,7 @@ public class jhostty extends Application {
         var sidebar = new TreeView<SidebarItem>();
         sidebar.setShowRoot(false);
         sidebar.getStyleClass().add("jhostty-sidebar");
-        sidebar.setPrefWidth(200);
-        sidebar.setMinWidth(120);
-        sidebar.setMaxWidth(400);
+        sidebar.setMinWidth(100);
         sidebar.setCellFactory(_ -> new TreeCell<>() {
             private final Label icon = new Label();
             { icon.setStyle("-fx-font-size: 11; -fx-padding: 0 4 0 0;"); }
@@ -1376,14 +1559,18 @@ public class jhostty extends Application {
                 if (empty || item == null) { setText(null); setGraphic(null); return; }
                 setText(item.label());
                 switch (item) {
-                    case SidebarItem.WindowItem _ ->  icon.setText("\u25A1");
-                    case SidebarItem.TabItem _ ->     icon.setText("\u25AB");
-                    case SidebarItem.TerminalItem _ -> icon.setText("\u276F");
+                    case SidebarItem.WindowItem _ ->   icon.setText("\u25A1");  // □
+                    case SidebarItem.TabItem _ ->      icon.setText("\u25AB");  // ▫
+                    case SidebarItem.TerminalItem _ ->  icon.setText("\u276F");  // ❯
+                    case SidebarItem.SectionHeader _ -> icon.setText("\u2261");  // ≡
+                    case SidebarItem.ZmxSessionItem s -> icon.setText(s.session().clients() > 0 ? "\u25C9" : "\u25CB"); // ◉ / ○
                 }
                 icon.setTextFill(getTextFill());
                 setGraphic(icon);
                 if (item instanceof SidebarItem.TerminalItem ti && ti.view() == activeTerminal) {
                     setStyle("-fx-font-weight: bold;");
+                } else if (item instanceof SidebarItem.SectionHeader) {
+                    setStyle("-fx-font-weight: bold; -fx-font-size: 11;");
                 } else {
                     setStyle(null);
                 }
@@ -1417,12 +1604,34 @@ public class jhostty extends Application {
                     wi.stage().toFront();
                     wi.stage().requestFocus();
                 }
+                case SidebarItem.ZmxSessionItem zi -> {
+                    // Focus existing terminal attached to this session, or create new one
+                    var existing = findTerminalForZmxSession(zi.session().name());
+                    if (existing != null) {
+                        var stg = findStageFor(existing);
+                        if (stg != null) { stg.toFront(); stg.requestFocus(); }
+                        var tp2 = findTabPane(existing);
+                        if (tp2 != null) {
+                            var tab = findTab(existing);
+                            if (tab != null) tp2.getSelectionModel().select(tab);
+                        }
+                        Platform.runLater(existing::requestFocus);
+                    } else {
+                        attachZmxSession(zi.session().name());
+                    }
+                }
+                case SidebarItem.SectionHeader _ -> {}
             }
         });
 
+        // Sidebar + tabs in a horizontal SplitPane for resizable sidebar
+        var contentSplit = new SplitPane(tabs);
+        contentSplit.setOrientation(Orientation.HORIZONTAL);
+        contentSplit.getStyleClass().add("jhostty-content-split");
+
         var root = new BorderPane();
         root.setTop(menuBar);
-        root.setCenter(tabs);
+        root.setCenter(contentSplit);
 
         var scene = new Scene(root, 1000, 700);
         if (cssUrl != null) scene.getStylesheets().add(cssUrl);
@@ -1507,7 +1716,7 @@ public class jhostty extends Application {
         sidebarsByWindow.put(stage, sidebar);
         stage.show();
         if (sidebarVisible) {
-            root.setLeft(sidebar);
+            showSidebarIn(contentSplit, sidebar);
             rebuildAllSidebars();
         }
         rebuildWindowMenus();
@@ -1519,6 +1728,128 @@ public class jhostty extends Application {
         if (!path.contains(" ") && !path.contains("'") && !path.contains("\"")) return path;
         if (IS_WINDOWS) return "\"" + path.replace("\"", "\\\"") + "\"";
         return "'" + path.replace("'", "'\\''" ) + "'";
+    }
+
+    // --- zmx session management ---
+
+    private static void initZmx() {
+        // Check if zmx is available
+        zmxAvailable = resolveExecutable("zmx") != null;
+        if (!zmxAvailable) {
+            debug("zmx not found in PATH");
+            return;
+        }
+        debug("zmx found, starting session refresh");
+        refreshZmxSessions();
+
+        // Refresh every 5 seconds
+        zmxRefreshTimer = new Timeline(
+                new KeyFrame(javafx.util.Duration.seconds(5), _ -> refreshZmxSessions()));
+        zmxRefreshTimer.setCycleCount(Animation.INDEFINITE);
+        zmxRefreshTimer.play();
+    }
+
+    private static void refreshZmxSessions() {
+        Thread.ofVirtual().name("zmx-list").start(() -> {
+            try {
+                var pb = new ProcessBuilder("zmx", "list");
+                pb.redirectErrorStream(true);
+                var proc = pb.start();
+                var output = new String(proc.getInputStream().readAllBytes()).trim();
+                if (!proc.waitFor(5, TimeUnit.SECONDS)) { proc.destroyForcibly(); return; }
+                var sessions = parseZmxList(output);
+                Platform.runLater(() -> {
+                    zmxSessions = sessions;
+                    rebuildAllSidebars();
+                });
+            } catch (Exception e) {
+                debug("zmx list failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private static List<ZmxSession> parseZmxList(String output) {
+        if (output.isBlank()) return List.of();
+        var result = new ArrayList<ZmxSession>();
+        for (var line : output.split("\n")) {
+            line = line.trim();
+            if (line.startsWith("\u2192 ")) line = line.substring(2).trim(); // strip → prefix
+            if (line.isBlank()) continue;
+            var fields = new java.util.HashMap<String, String>();
+            // Parse tab-separated key=value pairs
+            for (var part : line.split("\t")) {
+                part = part.trim();
+                var eq = part.indexOf('=');
+                if (eq > 0) {
+                    var key = part.substring(0, eq).trim();
+                    var val = part.substring(eq + 1).trim();
+                    fields.put(key, val);
+                }
+            }
+            var name = fields.getOrDefault("name", "");
+            if (name.isBlank()) continue;
+            var pid = parseInt(fields.getOrDefault("pid", "0"));
+            var clients = parseInt(fields.getOrDefault("clients", "0"));
+            var startDir = fields.getOrDefault("start_dir", "");
+            var cwdVal = fields.getOrDefault("cwd", "");
+            var cmd = fields.getOrDefault("cmd", "");
+            var ended = fields.containsKey("ended");
+            var exitCode = parseInt(fields.getOrDefault("exit_code", "0"));
+            result.add(new ZmxSession(name, pid, clients, startDir, cwdVal, cmd, ended, exitCode));
+        }
+        return result;
+    }
+
+    private static int parseInt(String s) {
+        try { return Integer.parseInt(s); } catch (NumberFormatException _) { return 0; }
+    }
+
+    /** Find an existing terminal that is attached to the given zmx session, or null. */
+    private static TerminalView findTerminalForZmxSession(String sessionName) {
+        var result = new ArrayList<TerminalView>();
+        forEachTerminal(v -> {
+            var cmd = getTerminalCommand(v);
+            // Match commands like ["zmx", "attach", "<name>"] or ["/path/to/zmx", "attach", "<name>"]
+            if (cmd.size() >= 3 && cmd.get(cmd.size() - 2).equals("attach")
+                    && cmd.getLast().equals(sessionName)
+                    && Path.of(cmd.getFirst()).getFileName().toString().equals("zmx")) {
+                result.add(v);
+            }
+        });
+        return result.isEmpty() ? null : result.getFirst();
+    }
+
+    /** Attach to a zmx session in a new tab (raw mode, no shell integration). */
+    private static void attachZmxSession(String sessionName) {
+        var zmxPath = resolveExecutable("zmx");
+        if (zmxPath == null) return;
+        var cmd = List.of(zmxPath.toString(), "attach", sessionName);
+        var tabPane = findActiveTabPane();
+        if (tabPane == null) return;
+        var view = createTerminalClean(cmd);
+        if (view == null) return;
+        var tab = new Tab();
+        bindTabTitle(tab, view);
+        tab.setContent(view);
+        tab.setClosable(true);
+        tab.setOnClosed(_ -> closeTerminalsIn(view));
+        tabPane.getTabs().add(tab);
+        tabPane.getSelectionModel().select(tab);
+        Platform.runLater(jhostty::saveState);
+    }
+
+    /** Find the TabPane in the focused/first window. */
+    private static TabPane findActiveTabPane() {
+        // Try active terminal's window first
+        if (activeTerminal != null) {
+            var tp = findTabPane(activeTerminal);
+            if (tp != null) return tp;
+        }
+        // Fallback to first window
+        if (!windows.isEmpty()) {
+            return getTabPane(windows.getFirst());
+        }
+        return null;
     }
 
     // --- Font handling ---
