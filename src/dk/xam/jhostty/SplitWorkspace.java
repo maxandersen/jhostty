@@ -194,6 +194,10 @@ class SplitWorkspace extends Region {
         contentLayer.setOnMouseReleased(this::handleMouseReleased);
         contentLayer.setOnMouseMoved(this::handleMouseMoved);
 
+        // Focus-follows-mouse needs an event filter on the workspace itself
+        // so it fires even when mouse is over child TerminalView nodes
+        addEventFilter(javafx.scene.input.MouseEvent.MOUSE_MOVED, this::handleFocusFollowsMouse);
+
         // Focus ring updates
         focusedPane.addListener((_, oldPane, newPane) -> updateFocusRings(oldPane, newPane));
 
@@ -825,14 +829,15 @@ class SplitWorkspace extends Region {
             }
         }
         setCursor(Cursor.DEFAULT);
+    }
 
-        // Focus follows mouse
-        if (focusFollowsMouse.get()) {
-            var leaf = leafAt(mx, my);
-            if (leaf != null && leaf != focusedPane.get()) {
-                focusedPane.set(leaf);
-                if (leaf.content() != null) leaf.content().requestFocus();
-            }
+    private void handleFocusFollowsMouse(MouseEvent e) {
+        if (!focusFollowsMouse.get() || zoomed) return;
+        double mx = e.getX(), my = e.getY();
+        var leaf = leafAt(mx, my);
+        if (leaf != null && leaf != focusedPane.get()) {
+            focusedPane.set(leaf);
+            if (leaf.content() != null) leaf.content().requestFocus();
         }
     }
 

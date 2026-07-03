@@ -85,6 +85,17 @@ public class JHostty extends Application {
     // Layout
     static String lastGoodLayout = null;
 
+    // Shared focus-follows-mouse state
+    static final javafx.beans.property.BooleanProperty focusFollowsMouse = new javafx.beans.property.SimpleBooleanProperty(false);
+    static {
+        focusFollowsMouse.addListener((_, _, v) -> {
+            for (var w : windows) {
+                var tp = getTabPane(w);
+                if (tp != null) { for (var t : tp.getTabs()) { if (t.getContent() instanceof SplitWorkspace ws) ws.focusFollowsMouseProperty().set(v); } }
+            }
+        });
+    }
+
     // --- Sidebar model ---
 
     public sealed interface SidebarItem {
@@ -315,13 +326,7 @@ public class JHostty extends Application {
         });
 
         var focusFollowsToggle = new CheckMenuItem("Focus Follows Mouse");
-        focusFollowsToggle.setSelected(false);
-        focusFollowsToggle.setOnAction(_ -> {
-            for (var w : windows) {
-                var tp2 = getTabPane(w);
-                if (tp2 != null) { for (var t : tp2.getTabs()) { if (t.getContent() instanceof SplitWorkspace ws) ws.focusFollowsMouseProperty().set(focusFollowsToggle.isSelected()); } }
-            }
-        });
+        focusFollowsToggle.selectedProperty().bindBidirectional(focusFollowsMouse);
 
         var settingsToggle = new MenuItem("Toggle Settings Panel");
         settingsToggle.setAccelerator(KeyCombination.keyCombination("Shortcut+,"));
@@ -376,6 +381,7 @@ public class JHostty extends Application {
         workspace.setPaneBackground(currentTheme.background());
         workspace.setFocusRingColor(focusRingColor(currentTheme));
         workspace.setPastelOpacity(pastelOpacity(currentTheme));
+        workspace.focusFollowsMouseProperty().set(focusFollowsMouse.get());
         workspace.setStyle("-fx-background-color: " + colorToCss(dividerColor(currentTheme.background())) + ";");
         // Close tab/window when last pane is dragged out
         workspace.setOnEmpty(() -> Platform.runLater(() -> {
@@ -1190,9 +1196,8 @@ public class JHostty extends Application {
         animCheck.selectedProperty().addListener((_, _, v) -> forEachWorkspace(tabs, ws -> ws.animationsEnabledProperty().set(v)));
 
         var focusFollowsCheck = new CheckBox("Focus Follows Mouse");
-        focusFollowsCheck.setSelected(false);
         focusFollowsCheck.setStyle("-fx-text-fill: #ccc; -fx-font-size: 11;");
-        focusFollowsCheck.selectedProperty().addListener((_, _, v) -> forEachWorkspace(tabs, ws -> ws.focusFollowsMouseProperty().set(v)));
+        focusFollowsCheck.selectedProperty().bindBidirectional(focusFollowsMouse);
 
         var sep1 = new Separator();
         sep1.setStyle("-fx-background-color: rgba(255,255,255,0.1);");
@@ -1696,6 +1701,7 @@ public class JHostty extends Application {
         workspace.setPaneBackground(currentTheme.background());
         workspace.setFocusRingColor(focusRingColor(currentTheme));
         workspace.setPastelOpacity(pastelOpacity(currentTheme));
+        workspace.focusFollowsMouseProperty().set(focusFollowsMouse.get());
         workspace.setStyle("-fx-background-color: " + colorToCss(dividerColor(currentTheme.background())) + ";");
         workspace.setOnEmpty(() -> Platform.runLater(() -> {
             var tp = findTabPane(workspace);
