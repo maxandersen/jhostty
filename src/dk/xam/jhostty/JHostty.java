@@ -86,7 +86,7 @@ public class JHostty extends Application {
     static String lastGoodLayout = null;
 
     // Shared focus-follows-mouse state
-    static final javafx.beans.property.BooleanProperty focusFollowsMouse = new javafx.beans.property.SimpleBooleanProperty(false);
+    static final javafx.beans.property.BooleanProperty focusFollowsMouse = new javafx.beans.property.SimpleBooleanProperty(true);
     static {
         focusFollowsMouse.addListener((_, _, v) -> {
             for (var w : windows) {
@@ -1340,8 +1340,8 @@ public class JHostty extends Application {
         );
         panel.setPadding(new javafx.geometry.Insets(12));
         panel.getStyleClass().add("jhostty-settings");
-        panel.setPrefWidth(220);
-        panel.setMinWidth(220);
+        panel.setPrefWidth(260);
+        panel.setMinWidth(260);
         closeBtn.setOnAction(_ -> { panel.setVisible(false); panel.setManaged(false); });
         return panel;
     }

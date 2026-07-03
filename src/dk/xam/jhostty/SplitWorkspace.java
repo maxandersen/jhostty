@@ -124,7 +124,7 @@ class SplitWorkspace extends Region {
     private final ObjectProperty<LeafPane> focusedPane = new SimpleObjectProperty<>();
     private final BooleanProperty pastelTinting = new SimpleBooleanProperty(true);
     private final BooleanProperty animationsEnabled = new SimpleBooleanProperty(true);
-    private final BooleanProperty focusFollowsMouse = new SimpleBooleanProperty(false);
+    private final BooleanProperty focusFollowsMouse = new SimpleBooleanProperty(true);
     private Supplier<Node> contentFactory; // creates new terminal content
     private Runnable onEmpty; // called when last pane is removed
 
