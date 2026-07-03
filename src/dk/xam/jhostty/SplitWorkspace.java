@@ -93,7 +93,7 @@ class SplitWorkspace extends Region {
     private static final List<SplitWorkspace> ALL_WORKSPACES = new ArrayList<>();
 
     // Geometry constants
-    static double GUTTER = 2;
+    static double GUTTER = 1;
     static final double PADDING = 0;
     static double PANE_RADIUS = 8;
     static final double MIN_PANE_W = 120;

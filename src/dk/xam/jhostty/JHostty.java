@@ -1000,7 +1000,7 @@ public class JHostty extends Application {
     /** Divider/gutter color — slightly offset from terminal bg. */
     static Color dividerColor(Color bg) {
         var lum = bg.getRed() * 0.299 + bg.getGreen() * 0.587 + bg.getBlue() * 0.114;
-        return lum < 0.5 ? Color.web("#555555") : Color.web("#bbbbbb");
+        return lum < 0.5 ? Color.web("#3a3a3a") : Color.web("#cccccc");
     }
 
     static String colorToCss(Color c) {
@@ -1164,23 +1164,6 @@ public class JHostty extends Application {
         var btnDown   = toolBtn("\u2913", "Add Row Below",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.BOTTOM); });
         var btnClose  = toolBtn("\u2715", "Close Pane",  () -> { var ws = activeWorkspace(); if (ws != null) ws.closeFocused(); });
         var btnZoom   = toolBtn("\u2922", "Zoom Toggle", () -> { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); });
-        var btnReset  = toolBtn("\u21BA", "Reset Layout", () -> {
-            // Close all but one terminal, reset to single pane
-            var ws = activeWorkspace();
-            if (ws != null) {
-                var leaves = new java.util.ArrayList<>(ws.allLeaves());
-                if (leaves.size() > 1) {
-                    for (int i = 1; i < leaves.size(); i++) {
-                        var leaf = leaves.get(i);
-                        if (leaf.content() instanceof TerminalView tv) {
-                            if (closingTerminals.add(tv))
-                                Thread.ofVirtual().name("jhostty-close").start(tv::close);
-                        }
-                        ws.closePane(leaf);
-                    }
-                }
-            }
-        });
         var btnNewWin = toolBtn("\u2398", "New Window",  () -> newWindow());
 
         var spacer = new Region();
@@ -1189,7 +1172,7 @@ public class JHostty extends Application {
         var toolbar = new HBox(2,
             spacer, btnLeft, btnRight, btnUp, btnDown,
             toolSep(), btnClose, btnZoom,
-            toolSep(), btnReset, btnNewWin
+            toolSep(), btnNewWin
         );
         toolbar.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
         toolbar.setPadding(new javafx.geometry.Insets(2, 8, 2, 8));
@@ -1199,12 +1182,12 @@ public class JHostty extends Application {
 
     static Button toolBtn(String glyph, String tooltip, Runnable action) {
         var btn = new Button(glyph);
-        btn.setStyle("-fx-background-color: transparent; -fx-text-fill: #999; -fx-font-size: 14; -fx-padding: 2 6; -fx-cursor: hand;");
+        btn.setStyle("-fx-background-color: transparent; -fx-text-fill: #999; -fx-font-size: 17; -fx-padding: 2 6; -fx-cursor: hand;");
         btn.setTooltip(new Tooltip(tooltip));
         btn.setFocusTraversable(false);
         btn.setOnAction(_ -> action.run());
-        btn.setOnMouseEntered(_ -> btn.setStyle("-fx-background-color: rgba(255,255,255,0.1); -fx-background-radius: 4; -fx-text-fill: #ddd; -fx-font-size: 14; -fx-padding: 2 6; -fx-cursor: hand;"));
-        btn.setOnMouseExited(_ -> btn.setStyle("-fx-background-color: transparent; -fx-text-fill: #999; -fx-font-size: 14; -fx-padding: 2 6; -fx-cursor: hand;"));
+        btn.setOnMouseEntered(_ -> btn.setStyle("-fx-background-color: rgba(255,255,255,0.1); -fx-background-radius: 4; -fx-text-fill: #ddd; -fx-font-size: 17; -fx-padding: 2 6; -fx-cursor: hand;"));
+        btn.setOnMouseExited(_ -> btn.setStyle("-fx-background-color: transparent; -fx-text-fill: #999; -fx-font-size: 17; -fx-padding: 2 6; -fx-cursor: hand;"));
         return btn;
     }
 
