@@ -166,6 +166,8 @@ class SplitWorkspace extends Region {
     private SplitWorkspace dragTargetWorkspace; // workspace receiving the drop (may differ from this)
     private final Map<PaneId, Region> paneHeaders = new HashMap<>();
     private final Map<PaneId, javafx.scene.control.Label> shortcutLabels = new HashMap<>();
+    private final List<javafx.scene.control.Label> numberOverlays = new ArrayList<>();
+    private boolean numberOverlaysVisible = false;
     private static final String SHORTCUT_SYMBOL = System.getProperty("os.name", "").toLowerCase().contains("mac") ? "\u2318" : "^";
 
     // Zoom state
@@ -656,6 +658,41 @@ class SplitWorkspace extends Region {
             focusedPane.set(leaves.get(index));
             if (leaves.get(index).content() != null) leaves.get(index).content().requestFocus();
         }
+    }
+
+    /** Show large pane-number overlays (called when modifier key is held). */
+    public void showPaneNumbers() {
+        if (numberOverlaysVisible) return;
+        numberOverlaysVisible = true;
+        hidePaneNumbersImpl();
+        var leaves = allLeaves();
+        for (int i = 0; i < Math.min(leaves.size(), 9); i++) {
+            var r = currentRects.get(leaves.get(i).id());
+            if (r == null) continue;
+            var numLabel = new javafx.scene.control.Label(String.valueOf(i + 1));
+            numLabel.setStyle("-fx-font-size: 48; -fx-font-weight: bold; -fx-text-fill: rgba(255,255,255,0.35);"
+                + " -fx-background-color: rgba(0,0,0,0.4); -fx-background-radius: 12; -fx-padding: 8 20;");
+            numLabel.setMouseTransparent(true);
+            numLabel.setManaged(false);
+            numLabel.autosize();
+            double lw = numLabel.prefWidth(-1);
+            double lh = numLabel.prefHeight(-1);
+            numLabel.resizeRelocate(r.x() + (r.w() - lw) / 2, r.y() + (r.h() - lh) / 2, lw, lh);
+            overlayLayer.getChildren().add(numLabel);
+            numberOverlays.add(numLabel);
+        }
+    }
+
+    /** Hide the pane-number overlays (called when modifier key is released). */
+    public void hidePaneNumbers() {
+        if (!numberOverlaysVisible) return;
+        numberOverlaysVisible = false;
+        hidePaneNumbersImpl();
+    }
+
+    private void hidePaneNumbersImpl() {
+        for (var label : numberOverlays) overlayLayer.getChildren().remove(label);
+        numberOverlays.clear();
     }
 
     private void syncContentNodes() {

@@ -1661,6 +1661,20 @@ public class JHostty extends Application {
             if (windows.isEmpty()) { if (!shuttingDown) saveState(); Platform.exit(); }
         });
 
+        // Show pane numbers when Cmd/Ctrl is held (only if multiple panes)
+        scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if ((e.getCode() == KeyCode.COMMAND || e.getCode() == KeyCode.META || e.getCode() == KeyCode.CONTROL)
+                    && !e.isShiftDown() && !e.isAltDown()) {
+                var ws = activeWorkspace();
+                if (ws != null && ws.allLeaves().size() > 1) ws.showPaneNumbers();
+            }
+        });
+        scene.addEventFilter(KeyEvent.KEY_RELEASED, e -> {
+            if (e.getCode() == KeyCode.COMMAND || e.getCode() == KeyCode.META || e.getCode() == KeyCode.CONTROL) {
+                var ws = activeWorkspace();
+                if (ws != null) ws.hidePaneNumbers();
+            }
+        });
         scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
             if (debug && e.isShortcutDown()) debug("KeyEvent: code=" + e.getCode() + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown() + " shift=" + e.isShiftDown());
             if (!e.isShortcutDown()) return;
@@ -1679,6 +1693,7 @@ public class JHostty extends Application {
                         var ws = activeWorkspace();
                         if (ws != null) {
                             int idx = e.getCode().ordinal() - KeyCode.DIGIT1.ordinal();
+                            ws.hidePaneNumbers();
                             ws.focusPaneByIndex(idx);
                             e.consume();
                         }
