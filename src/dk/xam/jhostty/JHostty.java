@@ -223,7 +223,7 @@ public class JHostty extends Application {
 
         var newTabItem = new MenuItem("New Tab");
         newTabItem.setAccelerator(KeyCombination.keyCombination("Shortcut+T"));
-        newTabItem.setOnAction(_ -> newTab(tabs));
+        newTabItem.setOnAction(_ -> newTabNext(tabs));
 
         var splitH = new MenuItem("Split Horizontal");
         splitH.setAccelerator(KeyCombination.keyCombination("Shortcut+D"));
@@ -406,19 +406,56 @@ public class JHostty extends Application {
         tab.setClosable(true);
         tab.setOnClosed(_ -> closeTerminalsIn(workspace));
 
-        // Insert before the "+" tab if present
-        var plusIdx = -1;
-        for (int i = 0; i < tabPane.getTabs().size(); i++) {
-            if (tabPane.getTabs().get(i).getContent() == null && "+".equals(tabPane.getTabs().get(i).getText())) {
-                plusIdx = i;
-                break;
-            }
-        }
-        if (plusIdx >= 0) tabPane.getTabs().add(plusIdx, tab);
-        else tabPane.getTabs().add(tab);
+        tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
 
         // Update tab title when workspace focus changes
+        workspace.focusedPaneProperty().addListener((_, _, pane) -> {
+            if (pane != null && pane.content() instanceof TerminalView tv) {
+                tab.textProperty().bind(tv.titleProperty());
+            }
+        });
+        Platform.runLater(JHostty::saveState);
+    }
+
+    /** Insert a new tab right after the currently selected tab. */
+    static void newTabNext(TabPane tabPane) {
+        var selected = tabPane.getSelectionModel().getSelectedItem();
+        var idx = selected != null ? tabPane.getTabs().indexOf(selected) : -1;
+        // Create the workspace tab
+        var workspace = SplitWorkspace.createSingle(() -> createTerminal());
+        workspace.setContentFactory(() -> createTerminal());
+        workspace.setPaneBackground(currentTheme.background());
+        workspace.setFocusRingColor(focusRingColor(currentTheme));
+        workspace.setPastelOpacity(pastelOpacity(currentTheme));
+        workspace.focusFollowsMouseProperty().set(focusFollowsMouse.get());
+        workspace.setStyle("-fx-background-color: " + colorToCss(dividerColor(currentTheme.background())) + ";");
+        workspace.setOnEmpty(() -> Platform.runLater(() -> {
+            var tp = findTabPane(workspace);
+            var stg = tp != null ? findStage(tp) : null;
+            var t = findTab(workspace);
+            if (t != null && tp != null) tp.getTabs().remove(t);
+            if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
+        }));
+        workspace.focusedPaneProperty().addListener((_, _, pane) -> {
+            if (pane != null && pane.content() instanceof TerminalView tv) {
+                activeTerminal = tv;
+                var stg = findStageFor(tv);
+                if (stg != null) { stg.setTitle(tv.getTitle() != null ? tv.getTitle() : "jhostty"); rebuildWindowMenus(); }
+                rebuildAllSidebars();
+            }
+        });
+        var tab = new Tab();
+        tab.setText("jhostty");
+        tab.setContent(workspace);
+        tab.setClosable(false);
+        tab.setOnClosed(_ -> closeTerminalsIn(workspace));
+        if (idx >= 0 && idx + 1 < tabPane.getTabs().size()) {
+            tabPane.getTabs().add(idx + 1, tab);
+        } else {
+            tabPane.getTabs().add(tab);
+        }
+        tabPane.getSelectionModel().select(tab);
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
                 tab.textProperty().bind(tv.titleProperty());
@@ -464,9 +501,7 @@ public class JHostty extends Application {
     }
 
     static void updateTabBarVisibility(TabPane tp) {
-        // Count real tabs (not the "+" button)
-        var realCount = tp.getTabs().stream().filter(t -> t.getContent() != null).count();
-        var hide = realCount <= 1;
+        var hide = tp.getTabs().size() <= 1;
         if (hide) { if (!tp.getStyleClass().contains("single-tab")) tp.getStyleClass().add("single-tab"); }
         else tp.getStyleClass().remove("single-tab");
     }
@@ -554,7 +589,6 @@ public class JHostty extends Application {
             var windowNode = new TreeItem<SidebarItem>(new SidebarItem.WindowItem(w, wi));
             windowNode.setExpanded(true);
             for (var tab : tp.getTabs()) {
-                if (tab.getContent() == null) continue; // skip "+" tab
                 var tabTitle = tab.getText() != null ? tab.getText() : "Terminal";
                 var tabNode = new TreeItem<SidebarItem>(new SidebarItem.TabItem(tab, tabTitle));
                 tabNode.setExpanded(true);
@@ -1396,7 +1430,6 @@ public class JHostty extends Application {
             if (tp == null) { sb.append("1"); continue; }
             boolean first = true;
             for (var tab : tp.getTabs()) {
-                if (tab.getContent() == null) continue; // skip "+" tab
                 if (!first) sb.append(',');
                 first = false;
                 captureNode(sb, tab.getContent());
@@ -1443,7 +1476,7 @@ public class JHostty extends Application {
             var tabs = getTabPane(stage);
             if (tabs == null) { newWindow(); continue; }
             for (var tabDesc : LayoutCodec.splitTabDescs(windowDesc)) restoreTab(tabs, tabDesc.trim());
-            if (tabs.getTabs().stream().noneMatch(t -> t.getContent() != null)) newTab(tabs);
+            if (tabs.getTabs().isEmpty()) newTab(tabs);
         }
     }
 
@@ -1485,32 +1518,18 @@ public class JHostty extends Application {
 
         // Equal-width tabs (exclude the "+" button from sizing)
         Runnable updateTabWidths = () -> {
-            var realTabs = tabs.getTabs().stream().filter(t -> t.getContent() != null).toList();
-            int count = realTabs.size();
+            int count = tabs.getTabs().size();
             if (count <= 0) return;
-            double available = tabs.getWidth() - 40; // leave room for "+" button
-            double tabWidth = Math.max(60, available / count);
-            for (var t : realTabs) {
+            double tabWidth = Math.max(60, tabs.getWidth() / count);
+            for (var t : tabs.getTabs()) {
                 t.setStyle("-fx-pref-width: " + tabWidth + "; -fx-min-width: 60; -fx-max-width: " + tabWidth + ";");
             }
         };
         tabs.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) _ -> Platform.runLater(updateTabWidths));
         tabs.widthProperty().addListener((_, _, _) -> updateTabWidths.run());
 
-        // "+" new tab button
-        var newTabBtn = new Tab("+");
-        newTabBtn.setClosable(false);
-        newTabBtn.setContent(null);
-        newTabBtn.setStyle("-fx-pref-width: 28; -fx-min-width: 28; -fx-max-width: 28;");
-        tabs.getTabs().add(newTabBtn);
         tabs.getSelectionModel().selectedItemProperty().addListener((_, _, selected) -> {
-            if (selected == newTabBtn) {
-                Platform.runLater(() -> {
-                    newTab(tabs);
-                    tabs.getTabs().remove(newTabBtn);
-                    tabs.getTabs().add(newTabBtn);
-                });
-            } else if (selected != null && selected.getContent() instanceof SplitWorkspace ws) {
+            if (selected != null && selected.getContent() instanceof SplitWorkspace ws) {
                 // Update activeTerminal when switching tabs
                 var focused = ws.focusedPaneProperty().get();
                 if (focused != null && focused.content() instanceof TerminalView tv) {
@@ -1607,12 +1626,10 @@ public class JHostty extends Application {
         HBox.setHgrow(rightSpacer, Priority.ALWAYS);
         rightSpacer.setMouseTransparent(true);
 
-        var shortcutHint = new Label(IS_MAC ? "\u2318T  new tab" : "Ctrl+T  new tab");
-        shortcutHint.setStyle("-fx-text-fill: rgba(255,255,255,0.65); -fx-font-size: 11; -fx-padding: 0 12 0 8;");
-        shortcutHint.setMouseTransparent(true);
-        shortcutHint.setMinWidth(Region.USE_PREF_SIZE);
+        var addTabBtn = toolBtn("+", "New Tab", () -> newTabNext(tabs));
+        var closeTabBtn = toolBtn("\u2715", "Close Tab", () -> closeActive(tabs, findStage(tabs)));
 
-        var titleBar = new HBox(4, trafficSpacer, leftSpacer, titleLabel, rightSpacer, toolbar, shortcutHint);
+        var titleBar = new HBox(4, trafficSpacer, leftSpacer, titleLabel, rightSpacer, toolbar, addTabBtn, closeTabBtn);
         titleBar.setAlignment(javafx.geometry.Pos.CENTER);
         titleBar.setPadding(new javafx.geometry.Insets(0, 4, 0, 4));
         titleBar.setStyle("-fx-background-color: transparent;");
@@ -1684,7 +1701,7 @@ public class JHostty extends Application {
             switch (e.getCode()) {
                 case Q -> { quit(); e.consume(); }
                 case N -> { newWindow(); e.consume(); }
-                case T -> { newTab(tabs); e.consume(); }
+                case T -> { newTabNext(tabs); e.consume(); }
                 case D -> { if (e.isShiftDown()) splitActive(Orientation.HORIZONTAL); else splitActive(Orientation.VERTICAL); e.consume(); }
                 case W -> { closeActive(tabs, stage); e.consume(); }
                 case BACK_SLASH -> { toggleSidebar(); e.consume(); }
@@ -1809,18 +1826,9 @@ public class JHostty extends Application {
         var tab = new Tab();
         tab.setText(commandBaseName(cmd));
         tab.setContent(workspace);
-        tab.setClosable(true);
+        tab.setClosable(false);
         tab.setOnClosed(_ -> closeTerminalsIn(workspace));
-        // Insert before "+" tab
-        var plusIdx = -1;
-        for (int i = 0; i < tabPane.getTabs().size(); i++) {
-            if (tabPane.getTabs().get(i).getContent() == null && "+".equals(tabPane.getTabs().get(i).getText())) {
-                plusIdx = i;
-                break;
-            }
-        }
-        if (plusIdx >= 0) tabPane.getTabs().add(plusIdx, tab);
-        else tabPane.getTabs().add(tab);
+        tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
         Platform.runLater(JHostty::saveState);
     }
