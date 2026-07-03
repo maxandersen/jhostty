@@ -20,6 +20,7 @@
 //SOURCES src/dk/xam/themes/ColorUtil.java
 //SOURCES src/dk/xam/themes/TerminalColorScheme.java
 //SOURCES src/dk/xam/themes/ThemeRegistry.java
+//FILES themes/builtin-themes.json
 //RUNTIME_OPTIONS --enable-native-access=ALL-UNNAMED --enable-native-access=javafx.graphics -Djavafx.enablePreview=true -Djavafx.suppressPreviewWarning=true
 
 import dk.xam.jhostty.JHostty;
