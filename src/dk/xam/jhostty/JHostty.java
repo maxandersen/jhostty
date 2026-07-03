@@ -501,8 +501,56 @@ public class JHostty extends Application {
                 tabHeader.setOnMouseExited(_ -> { if (!addBtn.isHover()) addBtn.setStyle(hidden); });
                 pane.getChildren().add(addBtn);
                 tab.getProperties().put("jhostty.addBtn", addBtn);
+
+                // Tab tear-off: drag tab outside the tab bar to a new window
+                tabHeader.setOnMouseDragged(e -> {
+                    if (tabPane.getTabs().size() <= 1) return; // don't tear off the last tab
+                    var tabBarBounds = tabPane.lookup(".tab-header-area");
+                    if (tabBarBounds == null) return;
+                    var localPt = tabBarBounds.screenToLocal(e.getScreenX(), e.getScreenY());
+                    if (localPt == null) return;
+                    // If dragged significantly below the tab bar, tear off
+                    if (localPt.getY() > tabBarBounds.getBoundsInLocal().getHeight() + 40) {
+                        tearOffTab(tab, tabPane, e.getScreenX(), e.getScreenY());
+                    }
+                });
             }
             return;
+        }
+    }
+
+    static void tearOffTab(Tab tab, TabPane srcTabPane, double screenX, double screenY) {
+        if (tab.getProperties().containsKey("jhostty.tornOff")) return;
+        tab.getProperties().put("jhostty.tornOff", true);
+        var content = tab.getContent();
+        srcTabPane.getTabs().remove(tab);
+        if (srcTabPane.getTabs().isEmpty()) {
+            var stg = findStage(srcTabPane);
+            if (stg != null) stg.close();
+        }
+        var newStage = newWindowEmpty();
+        if (newStage == null) return;
+        newStage.setX(screenX - 200);
+        newStage.setY(screenY - 30);
+        var newTabs = getTabPane(newStage);
+        if (newTabs == null) return;
+        var newTab = new Tab();
+        newTab.setText(tab.getText());
+        newTab.setContent(content);
+        setupTabGraphic(newTab, newTabs);
+        if (content instanceof SplitWorkspace ws) configureWorkspace(ws, newTabs);
+        newTabs.getTabs().add(newTab);
+        newTabs.getSelectionModel().select(newTab);
+        if (content instanceof SplitWorkspace ws) {
+            ws.focusedPaneProperty().addListener((_, _, pane) -> {
+                if (pane != null && pane.content() instanceof TerminalView tv) {
+                    activeTerminal = tv;
+                    newTab.textProperty().unbind();
+                    newTab.textProperty().bind(tv.titleProperty());
+                    var stg = findStageFor(tv);
+                    if (stg != null) { stg.setTitle(tv.getTitle() != null ? tv.getTitle() : "jhostty"); rebuildWindowMenus(); }
+                }
+            });
         }
     }
 
@@ -1617,6 +1665,37 @@ public class JHostty extends Application {
             var t = findTab(workspace);
             if (t != null && tp != null) tp.getTabs().remove(t);
             if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
+        }));
+        workspace.setOnPaneDraggedOut(leaf -> Platform.runLater(() -> {
+            // Create a new window with the dragged-out pane
+            var newStage = newWindowEmpty();
+            if (newStage == null) return;
+            var newTabs = getTabPane(newStage);
+            if (newTabs == null) return;
+            var newWs = new SplitWorkspace();
+            newWs.setContentFactory(() -> createTerminal());
+            newWs.setRoot(leaf);
+            configureWorkspace(newWs, newTabs);
+            var tab = new Tab();
+            tab.setText("jhostty");
+            tab.setContent(newWs);
+            setupTabGraphic(tab, newTabs);
+            newTabs.getTabs().add(tab);
+            newTabs.getSelectionModel().select(tab);
+            newWs.focusedPaneProperty().addListener((_, _, pane) -> {
+                if (pane != null && pane.content() instanceof TerminalView tv) {
+                    activeTerminal = tv;
+                    tab.textProperty().unbind();
+                    tab.textProperty().bind(tv.titleProperty());
+                    var stg = findStageFor(tv);
+                    if (stg != null) { stg.setTitle(tv.getTitle() != null ? tv.getTitle() : "jhostty"); rebuildWindowMenus(); }
+                    rebuildAllSidebars();
+                }
+            });
+            if (leaf.content() instanceof TerminalView tv) {
+                activeTerminal = tv;
+                tv.requestFocus();
+            }
         }));
     }
 

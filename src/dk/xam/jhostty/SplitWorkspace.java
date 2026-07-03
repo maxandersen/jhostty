@@ -222,6 +222,9 @@ class SplitWorkspace extends Region {
 
     public void setContentFactory(Supplier<Node> factory) { this.contentFactory = factory; }
     public void setOnEmpty(Runnable handler) { this.onEmpty = handler; }
+    private java.util.function.Consumer<LeafPane> onPaneDraggedOut;
+    /** Called when a pane is dragged outside all workspaces (for creating a new window). */
+    public void setOnPaneDraggedOut(java.util.function.Consumer<LeafPane> handler) { this.onPaneDraggedOut = handler; }
     public Supplier<Node> getContentFactory() { return contentFactory; }
 
     public ObjectProperty<LeafPane> focusedPaneProperty() { return focusedPane; }
@@ -1227,6 +1230,15 @@ class SplitWorkspace extends Region {
         }
 
         // Perform drop
+        if (dragging && dropTarget == null && onPaneDraggedOut != null) {
+            // Dragged outside all workspaces — detach and notify
+            var source = dragSource;
+            removeLeaf(source);
+            // Clean up before callback
+            dragSource = null; dropTarget = null; dropZone = null; dragTargetWorkspace = null; dragging = false;
+            onPaneDraggedOut.accept(source);
+            return;
+        }
         if (dragging && dropTarget != null && dropZone != null) {
             var destWs = dragTargetWorkspace != null ? dragTargetWorkspace : this;
             if (destWs == this) {
