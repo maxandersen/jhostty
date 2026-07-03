@@ -1797,16 +1797,16 @@ public class JHostty extends Application {
         sidebarTree.getStyleClass().add("jhostty-sidebar");
 
         var sidebarTitle = new Label("Terminals");
-        sidebarTitle.setStyle("-fx-font-size: 12; -fx-font-weight: bold; -fx-padding: 6 8;");
-        var sidebarClose = new Label("\u2715");
-        sidebarClose.setStyle("-fx-font-size: 11; -fx-cursor: hand; -fx-padding: 6 8; -fx-text-fill: rgba(255,255,255,0.4);");
-        sidebarClose.setOnMouseEntered(_ -> sidebarClose.setStyle("-fx-font-size: 11; -fx-cursor: hand; -fx-padding: 6 8; -fx-text-fill: rgba(255,255,255,0.9);"));
-        sidebarClose.setOnMouseExited(_ -> sidebarClose.setStyle("-fx-font-size: 11; -fx-cursor: hand; -fx-padding: 6 8; -fx-text-fill: rgba(255,255,255,0.4);"));
-        sidebarClose.setOnMouseClicked(_ -> toggleSidebar());
-        var sidebarSpacer = new Region();
-        HBox.setHgrow(sidebarSpacer, Priority.ALWAYS);
-        var sidebarHeader = new HBox(sidebarTitle, sidebarSpacer, sidebarClose);
+        sidebarTitle.setStyle("-fx-font-size: 14; -fx-font-weight: bold;");
+        var sidebarCloseBtn = new Button("\u2715");
+        sidebarCloseBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;");
+        sidebarCloseBtn.setOnMouseEntered(_ -> sidebarCloseBtn.setStyle("-fx-background-color: rgba(255,255,255,0.1); -fx-background-radius: 4; -fx-text-fill: #ccc; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;"));
+        sidebarCloseBtn.setOnMouseExited(_ -> sidebarCloseBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;"));
+        sidebarCloseBtn.setFocusTraversable(false);
+        sidebarCloseBtn.setOnAction(_ -> toggleSidebar());
+        var sidebarHeader = new HBox(sidebarTitle, new Region() {{ HBox.setHgrow(this, Priority.ALWAYS); }}, sidebarCloseBtn);
         sidebarHeader.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        sidebarHeader.setPadding(new javafx.geometry.Insets(8, 12, 8, 12));
         sidebarHeader.getStyleClass().add("jhostty-sidebar");
         VBox.setVgrow(sidebarTree, Priority.ALWAYS);
         var sidebar = new VBox(sidebarHeader, sidebarTree);
