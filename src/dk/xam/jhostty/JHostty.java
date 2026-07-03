@@ -2182,18 +2182,33 @@ public class JHostty extends Application {
             if (e.getCode() == KeyCode.ESCAPE) { animateOverviewOut(root); e.consume(); }
         });
 
-        // Animate in: scale from 1.0 (full size) down to grid, fade background in
+        // Animate in: start zoomed up, shrink to grid
         root.getChildren().add(tabOverlayPane);
         tabOverlayPane.requestFocus();
         tabOverlayPane.setOpacity(0);
-        grid.setScaleX(1.3); grid.setScaleY(1.3);
+        // Start cards invisible, scale up from center
+        for (var node : grid.getChildren()) { node.setOpacity(0); node.setScaleX(2.5); node.setScaleY(2.5); }
         tabOverviewAnimating = true;
-        var fadeIn = new javafx.animation.FadeTransition(javafx.util.Duration.millis(200), tabOverlayPane);
-        fadeIn.setToValue(1.0);
-        var scaleIn = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(250), grid);
-        scaleIn.setToX(1.0); scaleIn.setToY(1.0);
-        scaleIn.setInterpolator(javafx.animation.Interpolator.EASE_OUT);
-        var par = new javafx.animation.ParallelTransition(fadeIn, scaleIn);
+
+        var bgFade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(250), tabOverlayPane);
+        bgFade.setToValue(1.0);
+
+        // Stagger cards appearing
+        var cardAnims = new javafx.animation.ParallelTransition();
+        int ci = 0;
+        for (var node : grid.getChildren()) {
+            var delay = javafx.util.Duration.millis(ci * 30);
+            var fade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(200), node);
+            fade.setDelay(delay);
+            fade.setToValue(1.0);
+            var scale = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(300), node);
+            scale.setDelay(delay);
+            scale.setToX(1.0); scale.setToY(1.0);
+            scale.setInterpolator(javafx.animation.Interpolator.EASE_OUT);
+            cardAnims.getChildren().addAll(fade, scale);
+            ci++;
+        }
+        var par = new javafx.animation.ParallelTransition(bgFade, cardAnims);
         par.setOnFinished(_ -> tabOverviewAnimating = false);
         par.play();
     }
@@ -2202,13 +2217,28 @@ public class JHostty extends Application {
         if (tabOverlayPane == null || tabOverviewAnimating) return;
         tabOverviewAnimating = true;
         var content = tabOverlayPane.getChildren().isEmpty() ? tabOverlayPane : tabOverlayPane.getChildren().getFirst();
-        var grid = (content instanceof javafx.scene.control.ScrollPane sp) ? sp.getContent() : content;
-        var fadeOut = new javafx.animation.FadeTransition(javafx.util.Duration.millis(150), tabOverlayPane);
-        fadeOut.setToValue(0);
-        var scaleOut = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(200), grid);
-        scaleOut.setToX(1.3); scaleOut.setToY(1.3);
-        scaleOut.setInterpolator(javafx.animation.Interpolator.EASE_IN);
-        var par = new javafx.animation.ParallelTransition(fadeOut, scaleOut);
+        var gridNode = (content instanceof javafx.scene.control.ScrollPane sp) ? sp.getContent() : content;
+        var cards = (gridNode instanceof javafx.scene.layout.Pane p) ? p.getChildren() : javafx.collections.FXCollections.<Node>observableArrayList();
+
+        // Animate cards zooming out + fading
+        var cardAnims = new javafx.animation.ParallelTransition();
+        int ci = 0;
+        for (var node : cards) {
+            var delay = javafx.util.Duration.millis(ci * 20);
+            var fade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(150), node);
+            fade.setDelay(delay);
+            fade.setToValue(0);
+            var scale = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(200), node);
+            scale.setDelay(delay);
+            scale.setToX(2.5); scale.setToY(2.5);
+            scale.setInterpolator(javafx.animation.Interpolator.EASE_IN);
+            cardAnims.getChildren().addAll(fade, scale);
+            ci++;
+        }
+        var bgFade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(200), tabOverlayPane);
+        bgFade.setDelay(javafx.util.Duration.millis(100));
+        bgFade.setToValue(0);
+        var par = new javafx.animation.ParallelTransition(cardAnims, bgFade);
         par.setOnFinished(_ -> {
             root.getChildren().remove(tabOverlayPane);
             tabOverlayPane = null;
