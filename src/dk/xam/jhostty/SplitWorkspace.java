@@ -222,9 +222,10 @@ class SplitWorkspace extends Region {
 
     public void setContentFactory(Supplier<Node> factory) { this.contentFactory = factory; }
     public void setOnEmpty(Runnable handler) { this.onEmpty = handler; }
-    private java.util.function.Consumer<LeafPane> onPaneDraggedOut;
-    /** Called when a pane is dragged outside all workspaces (for creating a new window). */
-    public void setOnPaneDraggedOut(java.util.function.Consumer<LeafPane> handler) { this.onPaneDraggedOut = handler; }
+    /** Callback receives (leaf, screenX, screenY) when a pane is dragged outside all workspaces. */
+    private PaneDraggedOutHandler onPaneDraggedOut;
+    public interface PaneDraggedOutHandler { void handle(LeafPane leaf, double screenX, double screenY); }
+    public void setOnPaneDraggedOut(PaneDraggedOutHandler handler) { this.onPaneDraggedOut = handler; }
     public Supplier<Node> getContentFactory() { return contentFactory; }
 
     public ObjectProperty<LeafPane> focusedPaneProperty() { return focusedPane; }
@@ -1231,12 +1232,12 @@ class SplitWorkspace extends Region {
 
         // Perform drop
         if (dragging && dropTarget == null && onPaneDraggedOut != null) {
-            // Dragged outside all workspaces — detach and notify
+            // Dragged outside all workspaces — detach and notify with drop position
             var source = dragSource;
+            double sx = e.getScreenX(), sy = e.getScreenY();
             removeLeaf(source);
-            // Clean up before callback
             dragSource = null; dropTarget = null; dropZone = null; dragTargetWorkspace = null; dragging = false;
-            onPaneDraggedOut.accept(source);
+            onPaneDraggedOut.handle(source, sx, sy);
             return;
         }
         if (dragging && dropTarget != null && dropZone != null) {

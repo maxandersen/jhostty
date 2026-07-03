@@ -1668,10 +1668,12 @@ public class JHostty extends Application {
             if (t != null && tp != null) tp.getTabs().remove(t);
             if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
         }));
-        workspace.setOnPaneDraggedOut(leaf -> Platform.runLater(() -> {
-            // Create a new window with the dragged-out pane
+        workspace.setOnPaneDraggedOut((leaf, screenX, screenY) -> Platform.runLater(() -> {
+            // Create a new window at the drop position
             var newStage = newWindowEmpty();
             if (newStage == null) return;
+            newStage.setX(screenX - 200);
+            newStage.setY(screenY - 30);
             var newTabs = getTabPane(newStage);
             if (newTabs == null) return;
             var newWs = new SplitWorkspace();
