@@ -957,6 +957,7 @@ public class JHostty extends Application {
         forEachTerminal(v -> v.setTheme(currentTheme));
         var divColor = dividerColor(currentTheme.background());
         var divColorCss = colorToCss(divColor);
+        var windowBgCss = colorToCss(currentTheme.background());
         // Update workspace pane backgrounds to match theme
         for (var w : windows) {
             var tp = getTabPane(w);
@@ -973,9 +974,9 @@ public class JHostty extends Application {
         }
         writeCss();
         for (var w : windows) {
-            w.getScene().setFill(divColor);
+            w.getScene().setFill(currentTheme.background());
             if (w.getScene().getRoot() instanceof BorderPane bp) {
-                bp.setStyle("-fx-background-color: " + colorToCss(divColor) + ";");
+                bp.setStyle("-fx-background-color: " + windowBgCss + ";");
             }
             var sheets = w.getScene().getStylesheets();
             if (sheets.contains(cssUrl)) { sheets.remove(cssUrl); sheets.add(cssUrl); }
@@ -1620,13 +1621,14 @@ public class JHostty extends Application {
         });
 
         var dividerColor = dividerColor(currentTheme.background());
+        var windowBg = currentTheme.background();
 
         var contentSplit = new SplitPane(tabs);
         contentSplit.setOrientation(Orientation.HORIZONTAL);
         contentSplit.getStyleClass().add("jhostty-content-split");
 
         var root = new BorderPane();
-        root.setStyle("-fx-background-color: " + colorToCss(dividerColor) + ";");
+        root.setStyle("-fx-background-color: " + colorToCss(windowBg) + ";");
 
         var toolbar = createWorkspaceToolbar(tabs);
         toolbar.setPickOnBounds(false);
@@ -1668,7 +1670,7 @@ public class JHostty extends Application {
         root.setRight(settingsPanel);
 
         var scene = new Scene(root, 1000, 700);
-        scene.setFill(dividerColor);
+        scene.setFill(windowBg);
         if (cssUrl != null) scene.getStylesheets().add(cssUrl);
 
         updateTabBarVisibility(tabs);
