@@ -367,6 +367,7 @@ public class JHostty extends Application {
         workspace.setPaneBackground(currentTheme.background());
         workspace.setFocusRingColor(focusRingColor(currentTheme));
         workspace.setPastelOpacity(pastelOpacity(currentTheme));
+        workspace.setStyle("-fx-background-color: " + colorToCss(dividerColor(currentTheme.background())) + ";");
         // Close tab/window when last pane is dragged out
         workspace.setOnEmpty(() -> Platform.runLater(() -> {
             var tp = findTabPane(workspace);
@@ -863,6 +864,8 @@ public class JHostty extends Application {
 
     static void applyThemeToAll() {
         forEachTerminal(v -> v.setTheme(currentTheme));
+        var divColor = dividerColor(currentTheme.background());
+        var divColorCss = colorToCss(divColor);
         // Update workspace pane backgrounds to match theme
         for (var w : windows) {
             var tp = getTabPane(w);
@@ -872,12 +875,12 @@ public class JHostty extends Application {
                         ws.setPaneBackground(currentTheme.background());
                         ws.setFocusRingColor(focusRingColor(currentTheme));
                         ws.setPastelOpacity(pastelOpacity(currentTheme));
+                        ws.setStyle("-fx-background-color: " + divColorCss + ";");
                     }
                 }
             }
         }
         writeCss();
-        var divColor = dividerColor(currentTheme.background());
         for (var w : windows) {
             w.getScene().setFill(divColor);
             if (w.getScene().getRoot() instanceof BorderPane bp) {
@@ -940,6 +943,8 @@ public class JHostty extends Application {
         try {
             Files.writeString(cssPath, """
                     .single-tab > .tab-header-area { -fx-max-height: 0; -fx-pref-height: 0; -fx-min-height: 0; visibility: hidden; }
+                    .tab-pane { -fx-background-color: %s; }
+                    .tab-pane > .tab-content-area { -fx-background-color: %s; }
                     .tab-pane > .tab-header-area { -fx-background-color: %s; -fx-padding: 0; }
                     .tab-pane > .tab-header-area > .headers-region { -fx-background-color: transparent; }
                     .tab-pane > .tab-header-area > .tab-header-background { -fx-background-color: %s; }
@@ -957,6 +962,7 @@ public class JHostty extends Application {
                     .context-menu .menu-item:focused .label { -fx-text-fill: %s; }
                     .context-menu .separator { -fx-padding: 4 8 4 8; }
                     .context-menu .separator .line { -fx-border-color: %s; -fx-border-width: 0.5 0 0 0; }
+                    .jhostty-content-split { -fx-background-color: %s; }
                     .jhostty-content-split > .split-pane-divider { -fx-background-color: %s; -fx-padding: 0 1 0 1; }
                     .jhostty-sidebar { -fx-background-color: %s; }
                     .jhostty-sidebar .tree-cell { -fx-text-fill: %s; -fx-background-color: transparent; -fx-font-size: 12; -fx-padding: 3 8 3 4; }
@@ -964,10 +970,11 @@ public class JHostty extends Application {
                     .jhostty-sidebar .tree-cell:empty { -fx-background-color: transparent; }
                     .jhostty-sidebar .tree-disclosure-node .arrow { -fx-background-color: %s; }
                     """.formatted(
+                        dividerCss, dividerCss,
                         tabBarBg, tabBarBg, tabSelectedBg, tabTextCss, tabSelectedTextCss,
                         tabCloseCss, tabCloseHoverCss,
                         dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss,
-                        borderCss, menuBgCss, fgCss, selCss, selText, fgCss));
+                        dividerCss, borderCss, menuBgCss, fgCss, selCss, selText, fgCss));
         } catch (IOException _) {}
     }
 
@@ -1675,6 +1682,7 @@ public class JHostty extends Application {
         workspace.setPaneBackground(currentTheme.background());
         workspace.setFocusRingColor(focusRingColor(currentTheme));
         workspace.setPastelOpacity(pastelOpacity(currentTheme));
+        workspace.setStyle("-fx-background-color: " + colorToCss(dividerColor(currentTheme.background())) + ";");
         workspace.setOnEmpty(() -> Platform.runLater(() -> {
             var tp = findTabPane(workspace);
             var stg = tp != null ? findStage(tp) : null;
