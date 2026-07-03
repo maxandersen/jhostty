@@ -412,8 +412,8 @@ public class JHostty extends Application {
         // Update tab title when workspace focus changes
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
-                tab.textProperty().unbind();
-                tab.textProperty().bind(tv.titleProperty());
+                var lbl = tab.getProperties().get("jhostty.titleLabel");
+                if (lbl instanceof Label l) l.textProperty().bind(tv.titleProperty());
             }
         });
         Platform.runLater(JHostty::saveState);
@@ -459,20 +459,24 @@ public class JHostty extends Application {
         tabPane.getSelectionModel().select(tab);
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
-                tab.textProperty().unbind();
-                tab.textProperty().bind(tv.titleProperty());
+                var lbl = tab.getProperties().get("jhostty.titleLabel");
+                if (lbl instanceof Label l) l.textProperty().bind(tv.titleProperty());
             }
         });
         Platform.runLater(JHostty::saveState);
     }
 
     /** Set up a tab's graphic with title label, + button, and ✕ button. */
+    /** Set up a tab's graphic with centered title, right-aligned + and ✕ buttons. */
     static void setupTabGraphic(Tab tab, TabPane tabPane) {
-        var titleLbl = new Label(tab.getText() != null ? tab.getText() : "Terminal");
+        var savedTitle = tab.getText();
+        var titleLbl = new Label(savedTitle != null && !savedTitle.isBlank() ? savedTitle : "Terminal");
         titleLbl.setStyle("-fx-font-size: 11;");
         titleLbl.setMouseTransparent(true);
-        // Keep graphic title in sync with tab text property
-        tab.textProperty().addListener((_, _, text) -> titleLbl.setText(text != null && !text.isBlank() ? text : "Terminal"));
+        titleLbl.setMaxWidth(Double.MAX_VALUE);
+        titleLbl.setAlignment(javafx.geometry.Pos.CENTER);
+        HBox.setHgrow(titleLbl, Priority.ALWAYS);
+        tab.getProperties().put("jhostty.titleLabel", titleLbl);
         var addBtn = new Label("+");
         addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 0 2;");
         addBtn.setOnMouseEntered(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.8); -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 0 2;"));
@@ -491,14 +495,9 @@ public class JHostty extends Application {
             }
             e.consume();
         });
-        var buttons = new HBox(2, addBtn, closeBtn);
-        buttons.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
-        var graphic = new BorderPane();
-        graphic.setCenter(titleLbl);
-        graphic.setRight(buttons);
-        BorderPane.setAlignment(titleLbl, javafx.geometry.Pos.CENTER);
-        BorderPane.setAlignment(buttons, javafx.geometry.Pos.CENTER_RIGHT);
-        graphic.setMinWidth(0);
+        var graphic = new HBox(4, titleLbl, addBtn, closeBtn);
+        graphic.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        graphic.setMaxWidth(Double.MAX_VALUE);
         tab.setGraphic(graphic);
     }
 
@@ -1038,8 +1037,9 @@ public class JHostty extends Application {
                     .tab-pane > .tab-header-area > .tab-header-background { -fx-background-color: %s; }
                     .tab-pane .tab { -fx-background-color: transparent; -fx-background-radius: 6 6 0 0; -fx-background-insets: 2 1 0 1; -fx-padding: 4 12 4 12; -fx-border-color: transparent; }
                     .tab-pane .tab:selected { -fx-background-color: %s; }
-                    .tab-pane .tab .tab-label { -fx-text-fill: %s; -fx-font-size: 11; }
+                    .tab-pane .tab .tab-label { -fx-text-fill: %s; -fx-font-size: 11; -fx-pref-width: 0; -fx-min-width: 0; -fx-max-width: 0; -fx-padding: 0; }
                     .tab-pane .tab:selected .tab-label { -fx-text-fill: %s; }
+                    .tab-pane .tab .tab-container { -fx-alignment: center; }
                     .tab-pane .tab .tab-close-button { -fx-background-color: %s; -fx-shape: "M 0,0 L 4,4 M 4,0 L 0,4"; -fx-padding: 0 4 0 4; }
                     .tab-pane .tab:hover .tab-close-button { -fx-background-color: %s; }
                     .split-pane > .split-pane-divider { -fx-background-color: %s; -fx-padding: 1; }
