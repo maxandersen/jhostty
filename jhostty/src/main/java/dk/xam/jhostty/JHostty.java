@@ -1868,9 +1868,7 @@ public class JHostty extends Application {
         tabs.getSelectionModel().selectedItemProperty().addListener((_, _, _) -> rebuildAllSidebars());
 
         var stage = new Stage();
-        @SuppressWarnings("deprecation")
-        var extendedStyle = javafx.stage.StageStyle.EXTENDED;
-        stage.initStyle(extendedStyle);
+        stage.initStyle(javafx.stage.StageStyle.EXTENDED);
         stage.setTitle("jhostty");
         stage.setScene(scene);
         titleLabel.textProperty().bind(stage.titleProperty());
@@ -2503,7 +2501,6 @@ public class JHostty extends Application {
         if (readOnlyTerminals.contains(view)) {
             readOnlyTerminals.remove(view);
             // Remove the filter
-            @SuppressWarnings("unchecked")
             var filter = (javafx.event.EventHandler<javafx.scene.input.InputEvent>) view.getProperties().get(READONLY_KEY);
             if (filter != null) {
                 view.removeEventFilter(KeyEvent.KEY_PRESSED, filter);

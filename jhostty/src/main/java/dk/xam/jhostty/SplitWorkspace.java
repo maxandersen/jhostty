@@ -117,7 +117,7 @@ class SplitWorkspace extends Region {
     private Duration FOCUS_DURATION = Duration.millis(120);
     private Duration ZOOM_DURATION = Duration.millis(250);
     private Duration RESIZE_ANIM_DURATION = Duration.millis(300);
-    private static final Interpolator EASE_IN_OUT = Interpolator.EASE_BOTH;
+    private static final Interpolator EASE_IN_OUT = Interpolator.SPLINE(0.25, 0.1, 0.25, 1.0);
 
     // ── State ──
     private SplitNode root;
