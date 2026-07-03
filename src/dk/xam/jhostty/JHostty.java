@@ -1493,23 +1493,25 @@ public class JHostty extends Application {
         if (node instanceof TerminalView v) {
             sb.append("1[").append(LayoutCodec.encodeCommand(getTerminalCommand(v))).append(']');
         } else if (node instanceof SplitWorkspace ws) {
-            var leaves = ws.allLeaves();
-            if (leaves.size() <= 1) {
-                if (!leaves.isEmpty() && leaves.getFirst().content() instanceof TerminalView v) {
-                    sb.append("1[").append(LayoutCodec.encodeCommand(getTerminalCommand(v))).append(']');
-                } else sb.append("1");
-            } else {
-                // For now encode as horizontal split (simplified — full tree encoding would need SplitWorkspace to expose its tree)
-                sb.append("H").append(leaves.size()).append('[');
-                for (int i = 0; i < leaves.size(); i++) {
-                    if (i > 0) sb.append('|');
-                    if (leaves.get(i).content() instanceof TerminalView v) {
-                        sb.append(LayoutCodec.encodeCommand(getTerminalCommand(v)));
-                    }
-                }
-                sb.append(']');
-            }
+            captureSplitNode(sb, ws.getRoot());
         } else sb.append("1");
+    }
+
+    static void captureSplitNode(StringBuilder sb, SplitNode node) {
+        if (node instanceof LeafPane leaf) {
+            if (leaf.content() instanceof TerminalView v) {
+                sb.append("L[").append(LayoutCodec.encodeCommand(getTerminalCommand(v))).append(']');
+            } else sb.append("L[]");
+        } else if (node instanceof Split split) {
+            var orient = split.orientation() == Orientation.HORIZONTAL ? "H" : "V";
+            sb.append(orient).append('{');
+            for (int i = 0; i < split.children().size(); i++) {
+                if (i > 0) sb.append(',');
+                sb.append(String.format("%.3f:", split.weights().get(i)));
+                captureSplitNode(sb, split.children().get(i));
+            }
+            sb.append('}');
+        } else sb.append("L[]");
     }
 
     static void restoreLayout() {
@@ -1529,30 +1531,91 @@ public class JHostty extends Application {
 
     static void restoreTab(TabPane tabPane, String desc) {
         if (desc.isEmpty()) { newTab(tabPane); return; }
-        var bracketIdx = desc.indexOf('[');
-        if (bracketIdx < 0) { newTab(tabPane); return; }
-        var prefix = desc.substring(0, bracketIdx);
-        var cmdsPart = desc.substring(bracketIdx + 1, desc.length() - 1);
-        var cmds = LayoutCodec.splitCommands(cmdsPart);
-        if (prefix.equals("1")) {
-            // Single terminal — create a workspace with one pane
-            var cmd = cmds.isEmpty() ? shellCommand : LayoutCodec.parseCommand(cmds.getFirst(), shellCommand);
-            newTab(tabPane); // creates a workspace with default terminal
-            // TODO: could enhance to use the saved command
-        } else {
-            // Multiple terminals — for now just create a tab and split
-            newTab(tabPane);
-            if (cmds.size() > 1) {
-                var ws = activeWorkspace();
-                if (ws != null) {
-                    var orientation = prefix.startsWith("V") ? Orientation.VERTICAL : Orientation.HORIZONTAL;
-                    var side = (orientation == Orientation.HORIZONTAL) ? javafx.geometry.Side.RIGHT : javafx.geometry.Side.BOTTOM;
-                    for (int i = 1; i < cmds.size(); i++) {
-                        ws.splitFocused(side);
-                    }
+        // New format: L[cmd], H{0.500:L[cmd],0.500:L[cmd]}, V{...}
+        // Legacy format: 1[cmd], H3[cmd|cmd|cmd]
+        if (desc.startsWith("L[") || desc.startsWith("H{") || desc.startsWith("V{")) {
+            var tree = parseSplitNode(desc, new int[]{0});
+            if (tree == null) { newTab(tabPane); return; }
+            var workspace = buildWorkspaceFromTree(tree);
+            if (workspace == null) { newTab(tabPane); return; }
+            configureWorkspace(workspace, tabPane);
+            var tab = new Tab();
+            tab.setText("jhostty");
+            tab.setContent(workspace);
+            setupTabGraphic(tab, tabPane);
+            tabPane.getTabs().add(tab);
+            tabPane.getSelectionModel().select(tab);
+            workspace.focusedPaneProperty().addListener((_, _, pane) -> {
+                if (pane != null && pane.content() instanceof TerminalView tv) {
+                    tab.textProperty().unbind();
+                    tab.textProperty().bind(tv.titleProperty());
                 }
-            }
+            });
+        } else {
+            // Legacy format or single terminal
+            newTab(tabPane);
         }
+    }
+
+    /** Parse a split node from the serialized format. */
+    static SplitNode parseSplitNode(String s, int[] pos) {
+        if (pos[0] >= s.length()) return null;
+        char c = s.charAt(pos[0]);
+        if (c == 'L') {
+            // Leaf: L[command]
+            pos[0] += 2; // skip "L["
+            int end = s.indexOf(']', pos[0]);
+            if (end < 0) return null;
+            var cmdStr = s.substring(pos[0], end);
+            pos[0] = end + 1;
+            var cmd = cmdStr.isEmpty() ? shellCommand : LayoutCodec.parseCommand(cmdStr, shellCommand);
+            var view = createTerminalClean(cmd);
+            if (view == null) return null;
+            return new LeafPane(PaneId.next(), view, null);
+        } else if (c == 'H' || c == 'V') {
+            // Split: H{weight:node,weight:node,...} or V{...}
+            var orient = c == 'H' ? Orientation.HORIZONTAL : Orientation.VERTICAL;
+            pos[0] += 2; // skip "H{" or "V{"
+            var children = new ArrayList<SplitNode>();
+            var weights = new ArrayList<Double>();
+            while (pos[0] < s.length() && s.charAt(pos[0]) != '}') {
+                if (s.charAt(pos[0]) == ',') pos[0]++;
+                int colonIdx = s.indexOf(':', pos[0]);
+                if (colonIdx < 0) break;
+                var weight = Double.parseDouble(s.substring(pos[0], colonIdx));
+                pos[0] = colonIdx + 1;
+                var child = parseSplitNode(s, pos);
+                if (child != null) { children.add(child); weights.add(weight); }
+            }
+            if (pos[0] < s.length() && s.charAt(pos[0]) == '}') pos[0]++;
+            if (children.size() < 2) return children.isEmpty() ? null : children.getFirst();
+            return new Split(orient, children, weights);
+        }
+        return null;
+    }
+
+    /** Build a SplitWorkspace from a parsed tree. */
+    static SplitWorkspace buildWorkspaceFromTree(SplitNode tree) {
+        var ws = new SplitWorkspace();
+        ws.setContentFactory(() -> createTerminal());
+        ws.setRoot(tree);
+        return ws;
+    }
+
+    /** Configure a workspace with theme, callbacks, etc. */
+    static void configureWorkspace(SplitWorkspace workspace, TabPane tabPane) {
+        workspace.setPaneBackground(currentTheme.background());
+        workspace.setFocusRingColor(focusRingColor(currentTheme));
+        workspace.setPastelOpacity(pastelOpacity(currentTheme));
+        workspace.focusFollowsMouseProperty().set(focusFollowsMouse.get());
+        workspace.setStyle("-fx-background-color: " + colorToCss(dividerColor(currentTheme.background())) + ";");
+        workspace.setOnEmpty(() -> Platform.runLater(() -> {
+            var tp = findTabPane(workspace);
+            var stg = tp != null ? findStage(tp) : null;
+            var t = findTab(workspace);
+            if (t != null && tp != null) tp.getTabs().remove(t);
+            if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
+        }));
     }
 
     // --- Window Factory ---
