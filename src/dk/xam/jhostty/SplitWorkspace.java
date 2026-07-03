@@ -1166,6 +1166,7 @@ class SplitWorkspace extends Region {
         SplitWorkspace targetWs = null;
         javafx.geometry.Point2D targetLocal = null;
         for (var ws : ALL_WORKSPACES) {
+            if (!ws.isVisible() || ws.getScene() == null) continue;
             var pt = ws.screenToLocal(e.getScreenX(), e.getScreenY());
             if (pt != null && pt.getX() >= 0 && pt.getY() >= 0
                     && pt.getX() <= ws.getWidth() && pt.getY() <= ws.getHeight()) {
