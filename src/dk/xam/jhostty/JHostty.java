@@ -474,38 +474,35 @@ public class JHostty extends Application {
                 if (stg != null) stg.close();
             }
         });
-        // Inject + button into the tab header once it's in the scene
-        tab.selectedProperty().addListener((_, _, _) -> injectAddButton(tab, tabPane));
-        tabPane.sceneProperty().addListener((_, _, _) -> Platform.runLater(() -> Platform.runLater(() -> injectAddButton(tab, tabPane))));
+        // Inject + button after skin is created (needs triple runLater)
+        Platform.runLater(() -> Platform.runLater(() -> Platform.runLater(() -> injectAddButton(tab, tabPane))));
     }
 
     private static void injectAddButton(Tab tab, TabPane tabPane) {
         if (tab.getProperties().containsKey("jhostty.addBtn")) return;
-        var tabNode = tab.getStyleableNode();
-        if (tabNode == null) return;
-        var addBtn = new Label("+");
-        addBtn.getStyleClass().add("jhostty-tab-add");
-        addBtn.setStyle("-fx-text-fill: transparent; -fx-font-size: 14; -fx-cursor: hand; -fx-padding: 0 0 0 2;");
-        addBtn.setOnMouseEntered(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 14; -fx-cursor: hand; -fx-padding: 0 0 0 2;"));
-        addBtn.setOnMouseExited(_ -> {
-            if (tabNode.isHover()) addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 14; -fx-cursor: hand; -fx-padding: 0 0 0 2;");
-            else addBtn.setStyle("-fx-text-fill: transparent; -fx-font-size: 14; -fx-cursor: hand; -fx-padding: 0 0 0 2;");
-        });
-        addBtn.setOnMouseClicked(e -> { newTabNext(tabPane); e.consume(); });
-        tabNode.setOnMouseEntered(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 14; -fx-cursor: hand; -fx-padding: 0 0 0 2;"));
-        tabNode.setOnMouseExited(_ -> { if (!addBtn.isHover()) addBtn.setStyle("-fx-text-fill: transparent; -fx-font-size: 14; -fx-cursor: hand; -fx-padding: 0 0 0 2;"); });
-        // Find the tab-container and append
-        if (tabNode instanceof javafx.scene.layout.Pane p) {
-            for (var child : p.getChildren()) {
-                if (child.getStyleClass().contains("tab-container") && child instanceof HBox hbox) {
-                    hbox.getChildren().add(addBtn);
-                    tab.getProperties().put("jhostty.addBtn", addBtn);
-                    return;
-                }
+        // Find this tab's header node via lookup — each .tab has a .tab-container
+        var allTabHeaders = tabPane.lookupAll(".tab");
+        var tabIdx = tabPane.getTabs().indexOf(tab);
+        int i = 0;
+        for (var tabHeader : allTabHeaders) {
+            if (i++ != tabIdx) continue;
+            // Found our tab header
+            var container = tabHeader.lookup(".tab-container");
+            if (container instanceof javafx.scene.layout.Pane pane) {
+                var addBtn = new Label("+");
+                var hidden = "-fx-text-fill: transparent; -fx-font-size: 14; -fx-cursor: hand; -fx-padding: 0 0 0 2;";
+                var subtle = "-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 14; -fx-cursor: hand; -fx-padding: 0 0 0 2;";
+                var bright = "-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 14; -fx-cursor: hand; -fx-padding: 0 0 0 2;";
+                addBtn.setStyle(hidden);
+                addBtn.setOnMouseEntered(_ -> addBtn.setStyle(bright));
+                addBtn.setOnMouseExited(_ -> { if (tabHeader.isHover()) addBtn.setStyle(subtle); else addBtn.setStyle(hidden); });
+                addBtn.setOnMouseClicked(e -> { newTabNext(tabPane); e.consume(); });
+                tabHeader.setOnMouseEntered(_ -> addBtn.setStyle(subtle));
+                tabHeader.setOnMouseExited(_ -> { if (!addBtn.isHover()) addBtn.setStyle(hidden); });
+                pane.getChildren().add(addBtn);
+                tab.getProperties().put("jhostty.addBtn", addBtn);
             }
-            // Fallback
-            p.getChildren().add(addBtn);
-            tab.getProperties().put("jhostty.addBtn", addBtn);
+            return;
         }
     }
 
