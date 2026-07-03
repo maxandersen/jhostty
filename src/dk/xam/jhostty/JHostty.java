@@ -984,12 +984,49 @@ public class JHostty extends Application {
                     .jhostty-sidebar .tree-cell:selected { -fx-background-color: %s; -fx-text-fill: %s; }
                     .jhostty-sidebar .tree-cell:empty { -fx-background-color: transparent; }
                     .jhostty-sidebar .tree-disclosure-node .arrow { -fx-background-color: %s; }
+                    .scroll-bar { -fx-background-color: transparent; -fx-padding: 0; }
+                    .scroll-bar .track { -fx-background-color: transparent; -fx-border-color: transparent; -fx-background-radius: 0; }
+                    .scroll-bar .thumb { -fx-background-color: %s; -fx-background-radius: 4; -fx-background-insets: 1; }
+                    .scroll-bar .thumb:hover { -fx-background-color: %s; }
+                    .scroll-bar .increment-button, .scroll-bar .decrement-button { -fx-padding: 0; -fx-background-color: transparent; }
+                    .scroll-bar .increment-arrow, .scroll-bar .decrement-arrow { -fx-padding: 0; -fx-shape: ""; }
+                    .scroll-bar:vertical { -fx-pref-width: 6; }
+                    .scroll-bar:horizontal { -fx-pref-height: 6; }
+                    .scroll-bar:vertical:hover { -fx-pref-width: 8; }
+                    .scroll-bar:horizontal:hover { -fx-pref-height: 8; }
+                    .jhostty-settings { -fx-background-color: %s; -fx-border-color: %s; -fx-border-width: 0 0 0 1; }
+                    .jhostty-settings .label { -fx-text-fill: %s; }
+                    .jhostty-settings .check-box { -fx-text-fill: %s; }
+                    .jhostty-settings .check-box .box { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 3; -fx-background-radius: 3; }
+                    .jhostty-settings .check-box:selected .box .mark { -fx-background-color: %s; }
+                    .jhostty-settings .separator .line { -fx-border-color: %s; -fx-border-width: 0.5 0 0 0; }
+                    .jhostty-settings .combo-box { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 4; -fx-background-radius: 4; }
+                    .jhostty-settings .combo-box .list-cell { -fx-text-fill: %s; -fx-font-size: 11; }
+                    .jhostty-settings .combo-box-popup .list-view { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 4; -fx-background-radius: 4; }
+                    .jhostty-settings .combo-box-popup .list-cell { -fx-text-fill: %s; -fx-background-color: transparent; -fx-font-size: 11; }
+                    .jhostty-settings .combo-box-popup .list-cell:filled:hover { -fx-background-color: %s; }
+                    .jhostty-settings .combo-box-popup .list-cell:filled:selected { -fx-background-color: %s; -fx-text-fill: %s; }
+                    .jhostty-settings .slider .track { -fx-background-color: %s; -fx-background-radius: 3; }
+                    .jhostty-settings .slider .thumb { -fx-background-color: %s; }
                     """.formatted(
                         dividerCss, dividerCss,
                         tabBarBg, tabBarBg, tabSelectedBg, tabTextCss, tabSelectedTextCss,
                         tabCloseCss, tabCloseHoverCss,
                         dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss,
-                        dividerCss, borderCss, menuBgCss, fgCss, selCss, selText, fgCss));
+                        dividerCss, borderCss, menuBgCss, fgCss, selCss, selText, fgCss,
+                        // scrollbar
+                        dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)",
+                        dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)",
+                        // settings panel
+                        menuBgCss, borderCss, fgCss, fgCss,
+                        dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", borderCss, fgCss, sepCss,
+                        dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", borderCss, fgCss,
+                        menuBgCss, borderCss, fgCss,
+                        dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
+                        selCss, selText,
+                        dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
+                        dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)"
+                        ));
         } catch (IOException _) {}
     }
 
@@ -1105,14 +1142,14 @@ public class JHostty extends Application {
 
     static VBox createSettingsPanel(TabPane tabs) {
         var title = new Label("Settings");
-        title.setStyle("-fx-font-size: 14; -fx-font-weight: bold; -fx-text-fill: white;");
+        title.setStyle("-fx-font-size: 14; -fx-font-weight: bold;");
 
         var pastelLabel = new Label("Pastel Opacity");
-        pastelLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        pastelLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
         var pastelSlider = safeSlider(0, 0.5, pastelOpacity(currentTheme));
         pastelSlider.setPrefWidth(180);
         var pastelValue = new Label(String.format("%.0f%%", pastelSlider.getValue() * 100));
-        pastelValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        pastelValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
         pastelSlider.valueProperty().addListener((_, _, v) -> {
             pastelValue.setText(String.format("%.0f%%", v.doubleValue() * 100));
             forEachWorkspace(tabs, ws -> ws.setPastelOpacity(v.doubleValue()));
@@ -1121,11 +1158,11 @@ public class JHostty extends Application {
         pastelRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         var gutterLabel = new Label("Gutter Width");
-        gutterLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        gutterLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
         var gutterSlider = safeSlider(0, 20, SplitWorkspace.GUTTER);
         gutterSlider.setPrefWidth(180);
         var gutterValue = new Label(String.format("%.0fpx", gutterSlider.getValue()));
-        gutterValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        gutterValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
         gutterSlider.valueProperty().addListener((_, _, v) -> {
             gutterValue.setText(String.format("%.0fpx", v.doubleValue()));
             forEachWorkspace(tabs, ws -> ws.setGutter(v.doubleValue()));
@@ -1134,11 +1171,11 @@ public class JHostty extends Application {
         gutterRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         var radiusLabel = new Label("Corner Radius");
-        radiusLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        radiusLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
         var radiusSlider = safeSlider(0, 20, SplitWorkspace.PANE_RADIUS);
         radiusSlider.setPrefWidth(180);
         var radiusValue = new Label(String.format("%.0fpx", radiusSlider.getValue()));
-        radiusValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        radiusValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
         radiusSlider.valueProperty().addListener((_, _, v) -> {
             radiusValue.setText(String.format("%.0fpx", v.doubleValue()));
             forEachWorkspace(tabs, ws -> ws.setPaneRadius(v.doubleValue()));
@@ -1147,11 +1184,11 @@ public class JHostty extends Application {
         radiusRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         var headerLabel = new Label("Header Height");
-        headerLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        headerLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
         var headerSlider = safeSlider(0, 40, SplitWorkspace.HEADER_H);
         headerSlider.setPrefWidth(180);
         var headerValue = new Label(String.format("%.0fpx", headerSlider.getValue()));
-        headerValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        headerValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
         headerSlider.valueProperty().addListener((_, _, v) -> {
             headerValue.setText(String.format("%.0fpx", v.doubleValue()));
             forEachWorkspace(tabs, ws -> ws.setHeaderHeight(v.doubleValue()));
@@ -1160,11 +1197,11 @@ public class JHostty extends Application {
         headerRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         var ringLabel = new Label("Focus Ring");
-        ringLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        ringLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
         var ringSlider = safeSlider(0, 5, SplitWorkspace.FOCUS_RING_WIDTH);
         ringSlider.setPrefWidth(180);
         var ringValue = new Label(String.format("%.1fpx", ringSlider.getValue()));
-        ringValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        ringValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
         ringSlider.valueProperty().addListener((_, _, v) -> {
             ringValue.setText(String.format("%.1fpx", v.doubleValue()));
             forEachWorkspace(tabs, ws -> ws.setFocusRingWidth(v.doubleValue()));
@@ -1173,11 +1210,11 @@ public class JHostty extends Application {
         ringRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         var animLabel = new Label("Animation Speed");
-        animLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        animLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
         var animSlider = safeSlider(50, 800, 300);
         animSlider.setPrefWidth(180);
         var animValue = new Label(String.format("%.0fms", animSlider.getValue()));
-        animValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        animValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
         animSlider.valueProperty().addListener((_, _, v) -> {
             animValue.setText(String.format("%.0fms", v.doubleValue()));
             forEachWorkspace(tabs, ws -> ws.setAnimationDuration(v.doubleValue()));
@@ -1187,22 +1224,20 @@ public class JHostty extends Application {
 
         var pastelCheck = new CheckBox("Pastel Tinting");
         pastelCheck.setSelected(true);
-        pastelCheck.setStyle("-fx-text-fill: #ccc; -fx-font-size: 11;");
+        pastelCheck.setStyle("-fx-font-size: 11;");
         pastelCheck.selectedProperty().addListener((_, _, v) -> forEachWorkspace(tabs, ws -> ws.pastelTintingProperty().set(v)));
 
         var animCheck = new CheckBox("Animations");
         animCheck.setSelected(true);
-        animCheck.setStyle("-fx-text-fill: #ccc; -fx-font-size: 11;");
+        animCheck.setStyle("-fx-font-size: 11;");
         animCheck.selectedProperty().addListener((_, _, v) -> forEachWorkspace(tabs, ws -> ws.animationsEnabledProperty().set(v)));
 
         var focusFollowsCheck = new CheckBox("Focus Follows Mouse");
-        focusFollowsCheck.setStyle("-fx-text-fill: #ccc; -fx-font-size: 11;");
+        focusFollowsCheck.setStyle("-fx-font-size: 11;");
         focusFollowsCheck.selectedProperty().bindBidirectional(focusFollowsMouse);
 
         var sep1 = new Separator();
-        sep1.setStyle("-fx-background-color: rgba(255,255,255,0.1);");
         var sep2 = new Separator();
-        sep2.setStyle("-fx-background-color: rgba(255,255,255,0.1);");
 
         var closeBtn = new Button("\u2715");
         closeBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;");
@@ -1215,7 +1250,7 @@ public class JHostty extends Application {
 
         // --- Theme selector ---
         var themeLabel = new Label("Theme");
-        themeLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        themeLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
         var allThemes = Themes.all();
         var themeCombo = new ComboBox<ThemeOption>();
         themeCombo.getItems().addAll(allThemes);
@@ -1244,7 +1279,7 @@ public class JHostty extends Application {
             sep2, pastelCheck, animCheck, focusFollowsCheck
         );
         panel.setPadding(new javafx.geometry.Insets(12));
-        panel.setStyle("-fx-background-color: rgba(30,30,30,0.95); -fx-border-color: rgba(255,255,255,0.1); -fx-border-width: 0 0 0 1;");
+        panel.getStyleClass().add("jhostty-settings");
         panel.setPrefWidth(220);
         panel.setMinWidth(220);
         closeBtn.setOnAction(_ -> { panel.setVisible(false); panel.setManaged(false); });
