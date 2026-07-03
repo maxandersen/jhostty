@@ -2141,9 +2141,10 @@ public class JHostty extends Application {
                     card.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 10; -fx-cursor: hand;");
             });
 
+            final var cardRef = card;
             card.setOnMouseClicked(_ -> {
                 tabs.getSelectionModel().select(tab);
-                animateOverviewOut(root);
+                animateOverviewSelect(root, cardRef, grid);
             });
 
             grid.getChildren().add(card);
@@ -2245,6 +2246,47 @@ public class JHostty extends Application {
             tabOverviewAnimating = false;
         });
         par.play();
+    }
+
+    /** Animate zoom into the selected card while fading out others. */
+    static void animateOverviewSelect(javafx.scene.layout.Pane root, Node selectedCard, javafx.scene.layout.Pane grid) {
+        if (tabOverlayPane == null || tabOverviewAnimating) return;
+        tabOverviewAnimating = true;
+
+        var anims = new javafx.animation.ParallelTransition();
+
+        // Selected card: zoom to fill screen
+        var selScale = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(300), selectedCard);
+        selScale.setToX(4.0); selScale.setToY(4.0);
+        selScale.setInterpolator(javafx.animation.Interpolator.EASE_IN);
+        var selFade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(250), selectedCard);
+        selFade.setDelay(javafx.util.Duration.millis(100));
+        selFade.setToValue(0);
+        anims.getChildren().addAll(selScale, selFade);
+
+        // Other cards: fade out and shrink
+        for (var node : grid.getChildren()) {
+            if (node == selectedCard) continue;
+            var fade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(150), node);
+            fade.setToValue(0);
+            var scale = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(200), node);
+            scale.setToX(0.8); scale.setToY(0.8);
+            scale.setInterpolator(javafx.animation.Interpolator.EASE_IN);
+            anims.getChildren().addAll(fade, scale);
+        }
+
+        // Background fade
+        var bgFade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(200), tabOverlayPane);
+        bgFade.setDelay(javafx.util.Duration.millis(150));
+        bgFade.setToValue(0);
+        anims.getChildren().add(bgFade);
+
+        anims.setOnFinished(_ -> {
+            root.getChildren().remove(tabOverlayPane);
+            tabOverlayPane = null;
+            tabOverviewAnimating = false;
+        });
+        anims.play();
     }
 
     // --- Help ---
