@@ -175,9 +175,11 @@ font = "JetBrains Mono"
 
 jhostty has no Pkl library dependency — when `jhostty.pkl` is present it shells out to the
 [`pkl` CLI](https://pkl-lang.org/main/current/pkl-cli/index.html) (`pkl eval -f properties`) to
-render it to Java properties, so you need `pkl` installed and on your `PATH` for this file to take
-effect. If it isn't found, jhostty logs a warning and falls back to `jhostty.properties` / saved
-state. When present, `jhostty.pkl` takes priority over both.
+render it to Java properties, caching the result as `jhostty.pkl.properties` next to it. `pkl` is
+only re-invoked when `jhostty.pkl` is newer than that cache, so `pkl` doesn't need to stay
+installed once a fresh cache exists. If `pkl` isn't found and there's no usable cache yet, jhostty
+logs a warning and falls back to `jhostty.properties` / saved state. When present, `jhostty.pkl`
+takes priority over both.
 
 ## Font Recommendation
 
