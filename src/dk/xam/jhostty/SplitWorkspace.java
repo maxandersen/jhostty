@@ -225,7 +225,6 @@ class SplitWorkspace extends Region {
     public BooleanProperty pastelTintingProperty() { return pastelTinting; }
     public BooleanProperty animationsEnabledProperty() { return animationsEnabled; }
     public BooleanProperty focusFollowsMouseProperty() { return focusFollowsMouse; }
-    public boolean isDragging() { return dragging || dragSource != null; }
 
     /** Set gutter width between panes. */
     public void setGutter(double px) {

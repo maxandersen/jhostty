@@ -689,8 +689,6 @@ public class JHostty extends Application {
     }
 
     static void removeTerminal(TerminalView view, TabPane tabPane, Stage stage) {
-        debug("removeTerminal: " + view.getTitle());
-        new Exception("removeTerminal").printStackTrace(System.err);
         if (!closingTerminals.add(view)) return;
         Thread.ofVirtual().name("jhostty-close").start(view::close);
 
