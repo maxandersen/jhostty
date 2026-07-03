@@ -2060,7 +2060,7 @@ public class JHostty extends Application {
             var tabPane = findActiveTabPane();
             if (tabPane == null) return;
             var cmd = List.of("sh", "-c",
-                "clear && cat " + tmpFile.toAbsolutePath() + " && printf '\\n\\033[2mPress q to close...\\033[0m' && while true; do read -n1 -s k; [ \"$k\" = q ] && break; done");
+                "clear && cat '" + tmpFile.toAbsolutePath() + "' && printf '\\n\\033[2mPress q to close...\\033[0m\\n' && read -r _");
             var view = createTerminal(cmd);
             if (view == null) return;
             var tab = new Tab();
