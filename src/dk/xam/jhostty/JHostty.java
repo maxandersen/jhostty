@@ -476,11 +476,14 @@ public class JHostty extends Application {
             }
         });
         var addBtn = new Label("+");
-        addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;");
+        addBtn.setStyle("-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;");
         addBtn.setOnMouseEntered(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;"));
-        addBtn.setOnMouseExited(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;"));
+        addBtn.setOnMouseExited(_ -> addBtn.setStyle("-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;"));
         addBtn.setOnMouseClicked(e -> { newTabNext(tabPane); e.consume(); });
         tab.setGraphic(addBtn);
+        // Show + on tab hover too (not just direct button hover)
+        tab.getStyleableNode().setOnMouseEntered(_ -> { if (!addBtn.isHover()) addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;"); });
+        tab.getStyleableNode().setOnMouseExited(_ -> { if (!addBtn.isHover()) addBtn.setStyle("-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;"); });
     }
 
     static void rebuildWindowMenus() {
