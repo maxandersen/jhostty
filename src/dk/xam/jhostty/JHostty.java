@@ -512,6 +512,9 @@ public class JHostty extends Application {
                     dragOrigin[0] = e.getScreenX();
                     dragOrigin[1] = e.getScreenY();
                     tabDragging[0] = false;
+                    // Hide pane numbers if showing
+                    var ws = activeWorkspace();
+                    if (ws != null) ws.hidePaneNumbers();
                 });
                 tabHeader.setOnMouseDragged(e -> {
                     if (tabPane.getTabs().size() <= 1) return;
@@ -1985,9 +1988,9 @@ public class JHostty extends Application {
 
         // Show pane numbers when Cmd/Ctrl is held (only if multiple panes)
         scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.isShortcutDown() && !e.isShiftDown() && !e.isAltDown()) {
+            if (e.isShortcutDown() && !e.isShiftDown() && !e.isAltDown() && activeTabDragGhost == null) {
                 var ws = activeWorkspace();
-                if (ws != null && ws.allLeaves().size() > 1) ws.showPaneNumbers();
+                if (ws != null && ws.allLeaves().size() > 1 && !ws.isDragging()) ws.showPaneNumbers();
             }
         });
         scene.addEventFilter(KeyEvent.KEY_RELEASED, e -> {
