@@ -958,9 +958,6 @@ public class JHostty extends Application {
         try {
             Files.writeString(cssPath, """
                     .single-tab > .tab-header-area { -fx-max-height: 0; -fx-pref-height: 0; -fx-min-height: 0; visibility: hidden; }
-                    .tab-pane > .tab-header-area > .control-buttons-tab { -fx-background-color: transparent; -fx-padding: 0; }
-                    .tab-pane > .tab-header-area > .control-buttons-tab > .container { -fx-padding: 0; }
-                    .tab-pane > .tab-header-area > .control-buttons-tab > .container > .tab-down-button { visibility: hidden; -fx-padding: 0; -fx-pref-height: 0; }
                     .tab-pane { -fx-background-color: %s; }
                     .tab-pane > .tab-content-area { -fx-background-color: %s; }
                     .tab-pane > .tab-header-area { -fx-background-color: %s; -fx-padding: 0; }
@@ -1482,16 +1479,19 @@ public class JHostty extends Application {
     static Stage newWindowEmpty() {
         var tabs = new TabPane();
         tabs.getStyleClass().add("jhostty-tabs");
-        tabs.setTabDragPolicy(TabPane.TabDragPolicy.FIXED);
+        tabs.setTabDragPolicy(TabPane.TabDragPolicy.REORDER);
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.ALL_TABS);
 
-        // Equal-width tabs
+        // Equal-width tabs (exclude the "+" button from sizing)
         Runnable updateTabWidths = () -> {
-            int count = (int) tabs.getTabs().stream().filter(t -> t.getContent() != null).count();
-            if (count <= 0) count = 1;
-            double tabWidth = Math.max(80, (tabs.getWidth() - 40) / count);
-            tabs.setTabMaxWidth(tabWidth);
-            tabs.setTabMinWidth(tabWidth);
+            var realTabs = tabs.getTabs().stream().filter(t -> t.getContent() != null).toList();
+            int count = realTabs.size();
+            if (count <= 0) return;
+            double available = tabs.getWidth() - 40; // leave room for "+" button
+            double tabWidth = Math.max(60, available / count);
+            for (var t : realTabs) {
+                t.setStyle("-fx-pref-width: " + tabWidth + "; -fx-min-width: 60; -fx-max-width: " + tabWidth + ";");
+            }
         };
         tabs.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) _ -> Platform.runLater(updateTabWidths));
         tabs.widthProperty().addListener((_, _, _) -> updateTabWidths.run());
