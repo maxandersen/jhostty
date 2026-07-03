@@ -554,7 +554,29 @@ public class JHostty extends Application {
                     }
                     if (!outside && tabDragging[0]) {
                         tabDragging[0] = false;
-                        if (activeTabDragGhost != null) { activeTabDragGhost.close(); activeTabDragGhost = null; activeTabDragGhost = null; }
+                        if (activeTabDragGhost != null) { activeTabDragGhost.close(); activeTabDragGhost = null; }
+                    }
+                    // Reorder within tab bar when dragging horizontally
+                    if (!outside && !tabDragging[0]) {
+                        var tabIdx2 = tabPane.getTabs().indexOf(tab);
+                        var allHeaders2 = tabPane.lookupAll(".tab");
+                        int targetIdx = tabIdx2;
+                        int hi = 0;
+                        for (var th : allHeaders2) {
+                            if (hi == tabIdx2) { hi++; continue; }
+                            var bounds = th.localToScreen(th.getBoundsInLocal());
+                            if (bounds != null) {
+                                double mid = bounds.getMinX() + bounds.getWidth() / 2;
+                                if (hi < tabIdx2 && e.getScreenX() < mid) { targetIdx = hi; break; }
+                                if (hi > tabIdx2 && e.getScreenX() < mid) { targetIdx = hi; break; }
+                            }
+                            hi++;
+                        }
+                        if (targetIdx != tabIdx2) {
+                            tabPane.getTabs().remove(tabIdx2);
+                            tabPane.getTabs().add(targetIdx, tab);
+                            tabPane.getSelectionModel().select(tab);
+                        }
                     }
                 });
                 tabHeader.setOnMouseReleased(e -> {
