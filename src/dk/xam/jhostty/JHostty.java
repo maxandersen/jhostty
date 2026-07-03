@@ -1493,7 +1493,9 @@ public class JHostty extends Application {
         if (node instanceof TerminalView v) {
             sb.append("1[").append(LayoutCodec.encodeCommand(getTerminalCommand(v))).append(']');
         } else if (node instanceof SplitWorkspace ws) {
-            captureSplitNode(sb, ws.getRoot());
+            var root = ws.getRoot();
+            if (root != null) captureSplitNode(sb, root);
+            else sb.append("L[]");
         } else sb.append("1");
     }
 
@@ -1783,11 +1785,14 @@ public class JHostty extends Application {
         });
 
         stage.setOnCloseRequest(_ -> closeAllTerminalsIn(tabs));
-        stage.setOnHidden(_ -> {
+        stage.setOnCloseRequest(_ -> {
             savedWindowX = stage.getX(); savedWindowY = stage.getY();
+            if (!shuttingDown) saveState();
+        });
+        stage.setOnHidden(_ -> {
             windows.remove(stage); windowMenus.removeIf(m -> m.getParentMenu() == null && m.getParentPopup() == null);
             sidebarsByWindow.remove(stage); rebuildWindowMenus(); rebuildAllSidebars();
-            if (windows.isEmpty()) { if (!shuttingDown) saveState(); Platform.exit(); }
+            if (windows.isEmpty()) Platform.exit();
         });
 
         // Show pane numbers when Cmd/Ctrl is held (only if multiple panes)
