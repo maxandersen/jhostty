@@ -668,7 +668,10 @@ class SplitWorkspace extends Region {
 
                 // Wire DnD on header
                 final var leafRef = leaf;
-                header.setOnMousePressed(e -> { startPaneDrag(leafRef, e); e.consume(); });
+                header.setOnMousePressed(e -> {
+                    if (e.getClickCount() == 2) { focusedPane.set(leafRef); toggleZoom(); e.consume(); return; }
+                    startPaneDrag(leafRef, e); e.consume();
+                });
                 header.setOnMouseDragged(e -> { doPaneDrag(e); e.consume(); });
                 header.setOnMouseReleased(e -> { endPaneDrag(e); e.consume(); });
 
