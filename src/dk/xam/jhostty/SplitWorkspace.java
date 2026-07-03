@@ -1549,14 +1549,19 @@ class SplitWorkspace extends Region {
         if (parentExtent <= 0) return;
         double dWeight = pxDelta / parentExtent;
 
-        // Find a neighbor to take/give weight
-        int neighbor = (dWeight > 0 && idx + 1 < split.children().size()) ? idx + 1
-                     : (dWeight < 0 && idx > 0) ? idx - 1 : -1;
+        // Find a neighbor: try right first for grow, left first for shrink
+        int neighbor;
+        if (dWeight > 0) {
+            // Growing: take from right neighbor, or left if at the end
+            neighbor = (idx + 1 < split.children().size()) ? idx + 1 : (idx > 0 ? idx - 1 : -1);
+        } else {
+            // Shrinking: give to right neighbor, or left if at the end
+            neighbor = (idx + 1 < split.children().size()) ? idx + 1 : (idx > 0 ? idx - 1 : -1);
+        }
         if (neighbor < 0) return;
 
-        double wA = split.weights().get(idx) + Math.abs(dWeight);
-        double wB = split.weights().get(neighbor) - Math.abs(dWeight);
-        if (dWeight < 0) { wA = split.weights().get(idx) - Math.abs(dWeight); wB = split.weights().get(neighbor) + Math.abs(dWeight); }
+        double wA = split.weights().get(idx) + dWeight;
+        double wB = split.weights().get(neighbor) - dWeight;
 
         double minW = minWeight(split, parentExtent);
         if (wA < minW || wB < minW) return;
