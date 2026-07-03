@@ -464,7 +464,7 @@ public class JHostty extends Application {
         Platform.runLater(JHostty::saveState);
     }
 
-    /** Set up tab with built-in title/close and a + button appended on the right. */
+    /** Set up tab with built-in title/close and a + button on the right. */
     static void setupTabGraphic(Tab tab, TabPane tabPane) {
         tab.setClosable(true);
         tab.setOnClosed(_ -> {
@@ -474,33 +474,15 @@ public class JHostty extends Application {
                 if (stg != null) stg.close();
             }
         });
-        // Defer adding the + button until the tab's skin node exists
-        Platform.runLater(() -> {
-            var tabNode = tab.getStyleableNode();
-            if (tabNode == null) return;
-            var addBtn = new Label("+");
-            var hiddenStyle = "-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 0 0 4;";
-            var subtleStyle = "-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 0 0 4;";
-            var brightStyle = "-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 0 0 4;";
-            addBtn.setStyle(hiddenStyle);
-            addBtn.setOnMouseEntered(_ -> addBtn.setStyle(brightStyle));
-            addBtn.setOnMouseExited(_ -> { if (tabNode.isHover()) addBtn.setStyle(subtleStyle); else addBtn.setStyle(hiddenStyle); });
-            addBtn.setOnMouseClicked(e -> { newTabNext(tabPane); e.consume(); });
-            tabNode.setOnMouseEntered(_ -> { if (!addBtn.isHover()) addBtn.setStyle(subtleStyle); });
-            tabNode.setOnMouseExited(_ -> { if (!addBtn.isHover()) addBtn.setStyle(hiddenStyle); });
-            // Append + to the tab's internal container (after close button)
-            if (tabNode instanceof javafx.scene.layout.Pane p) {
-                // Find the tab-container inside
-                for (var child : p.getChildren()) {
-                    if (child.getStyleClass().contains("tab-container") && child instanceof javafx.scene.layout.Pane container) {
-                        container.getChildren().add(addBtn);
-                        return;
-                    }
-                }
-                // Fallback: add directly
-                p.getChildren().add(addBtn);
-            }
-        });
+        var addBtn = new Label("+");
+        var hiddenStyle = "-fx-text-fill: transparent; -fx-font-size: 14; -fx-cursor: hand;";
+        var subtleStyle = "-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 14; -fx-cursor: hand;";
+        var brightStyle = "-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 14; -fx-cursor: hand;";
+        addBtn.setStyle(hiddenStyle);
+        addBtn.setOnMouseEntered(_ -> addBtn.setStyle(brightStyle));
+        addBtn.setOnMouseExited(_ -> addBtn.setStyle(hiddenStyle));
+        addBtn.setOnMouseClicked(e -> { newTabNext(tabPane); e.consume(); });
+        tab.setGraphic(addBtn);
     }
 
     static void rebuildWindowMenus() {
@@ -1041,6 +1023,7 @@ public class JHostty extends Application {
                     .tab-pane .tab:selected { -fx-background-color: %s; }
                     .tab-pane .tab .tab-label { -fx-text-fill: %s; -fx-font-size: 11; }
                     .tab-pane .tab:selected .tab-label { -fx-text-fill: %s; }
+                    .tab-pane .tab .tab-container { -fx-content-display: right; }
                     .tab-pane .tab .tab-close-button { -fx-background-color: %s; -fx-shape: "M 0,0 L 4,4 M 4,0 L 0,4"; -fx-padding: 0 4 0 4; }
                     .tab-pane .tab:hover .tab-close-button { -fx-background-color: %s; }
                     .split-pane > .split-pane-divider { -fx-background-color: %s; -fx-padding: 1; }
