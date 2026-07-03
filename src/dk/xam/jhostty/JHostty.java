@@ -338,9 +338,8 @@ public class JHostty extends Application {
         var settingsToggle = new MenuItem("Toggle Settings Panel");
         settingsToggle.setAccelerator(KeyCombination.keyCombination("Shortcut+,"));
         settingsToggle.setOnAction(_ -> {
-            var bp = (BorderPane) tabs.getScene().getRoot();
-            var sp = bp.getRight();
-            if (sp != null) { var vis = !sp.isVisible(); sp.setVisible(vis); sp.setManaged(vis); }
+            var bp = getRootPane(findStage(tabs));
+            if (bp != null) { var sp = bp.getRight(); if (sp != null) { var vis = !sp.isVisible(); sp.setVisible(vis); sp.setManaged(vis); } }
         });
 
         var viewMenu = new Menu("View", null, toggleSidebarItem, new SeparatorMenuItem(), zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu, new SeparatorMenuItem(), animToggle, pastelToggle, focusFollowsToggle, new SeparatorMenuItem(), settingsToggle, reloadConfig);
@@ -572,7 +571,8 @@ public class JHostty extends Application {
         sidebarVisible = !sidebarVisible;
         debug("toggleSidebar: visible=" + sidebarVisible);
         for (var w : windows) {
-            if (w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof SplitPane sp) {
+            var bp = getRootPane(w);
+            if (bp != null && bp.getCenter() instanceof SplitPane sp) {
                 var sidebar = sidebarsByWindow.get(w);
                 if (sidebar == null) continue;
                 if (sidebarVisible) showSidebarIn(sp, sidebar);
@@ -582,9 +582,18 @@ public class JHostty extends Application {
         if (sidebarVisible) rebuildAllSidebars();
     }
 
-    static TabPane getTabPane(Stage w) {
+    static BorderPane getRootPane(Stage w) {
         if (w.getScene() == null) return null;
-        if (!(w.getScene().getRoot() instanceof BorderPane bp)) return null;
+        var sceneRoot = w.getScene().getRoot();
+        if (sceneRoot instanceof BorderPane bp) return bp;
+        if (sceneRoot instanceof javafx.scene.layout.StackPane sp && !sp.getChildren().isEmpty()
+                && sp.getChildren().getFirst() instanceof BorderPane bp) return bp;
+        return null;
+    }
+
+    static TabPane getTabPane(Stage w) {
+        var bp = getRootPane(w);
+        if (bp == null) return null;
         var center = bp.getCenter();
         if (center instanceof TabPane tp) return tp;
         if (center instanceof SplitPane sp) {
@@ -596,8 +605,8 @@ public class JHostty extends Application {
     }
 
     static SplitPane getContentSplit(Stage w) {
-        if (w.getScene() == null) return null;
-        if (w.getScene().getRoot() instanceof BorderPane bp && bp.getCenter() instanceof SplitPane sp) return sp;
+        var bp = getRootPane(w);
+        if (bp != null && bp.getCenter() instanceof SplitPane sp) return sp;
         return null;
     }
 
@@ -993,8 +1002,9 @@ public class JHostty extends Application {
         writeCss();
         for (var w : windows) {
             w.getScene().setFill(currentTheme.background());
-            if (w.getScene().getRoot() instanceof BorderPane bp) {
-                bp.setStyle("-fx-background-color: " + windowBgCss + ";");
+            var bpTheme = getRootPane(w);
+            if (bpTheme != null) {
+                bpTheme.setStyle("-fx-background-color: " + windowBgCss + ";"  );
             }
             var sheets = w.getScene().getStylesheets();
             if (sheets.contains(cssUrl)) { sheets.remove(cssUrl); sheets.add(cssUrl); }
@@ -1883,7 +1893,8 @@ public class JHostty extends Application {
         settingsPanel.setManaged(false);
         root.setRight(settingsPanel);
 
-        var scene = new Scene(root, 1000, 700);
+        var rootStack = new javafx.scene.layout.StackPane(root);
+        var scene = new Scene(rootStack, 1000, 700);
         scene.setFill(windowBg);
         if (cssUrl != null) scene.getStylesheets().add(cssUrl);
 
@@ -1961,9 +1972,8 @@ public class JHostty extends Application {
                 }
                 case ENTER -> { if (e.isShiftDown()) { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); e.consume(); } }
                 case COMMA -> {
-                    var bp = (BorderPane) tabs.getScene().getRoot();
-                    var sp = (Node) bp.getRight();
-                    if (sp != null) { var vis = !sp.isVisible(); sp.setVisible(vis); sp.setManaged(vis); }
+                    var bpC = getRootPane(findStage(tabs));
+                    if (bpC != null) { var spC = (Node) bpC.getRight(); if (spC != null) { var vis = !spC.isVisible(); spC.setVisible(vis); spC.setManaged(vis); } }
                     e.consume();
                 }
                 case TAB -> { if (!e.isShiftDown()) { var ws = activeWorkspace(); if (ws != null) { ws.focusNext(); e.consume(); } } }
@@ -2080,7 +2090,7 @@ public class JHostty extends Application {
     static void toggleTabOverview(TabPane tabs) {
         var stage = findStage(tabs);
         if (stage == null || tabOverviewAnimating) return;
-        var root = (BorderPane) stage.getScene().getRoot();
+        var root = (javafx.scene.layout.StackPane) stage.getScene().getRoot();
 
         // If already showing, animate out and dismiss
         if (tabOverlayPane != null && tabOverlayPane.getParent() == root) {
@@ -2188,7 +2198,7 @@ public class JHostty extends Application {
         par.play();
     }
 
-    static void animateOverviewOut(BorderPane root) {
+    static void animateOverviewOut(javafx.scene.layout.Pane root) {
         if (tabOverlayPane == null || tabOverviewAnimating) return;
         tabOverviewAnimating = true;
         var content = tabOverlayPane.getChildren().isEmpty() ? tabOverlayPane : tabOverlayPane.getChildren().getFirst();
