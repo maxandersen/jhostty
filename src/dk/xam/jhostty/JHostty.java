@@ -481,9 +481,20 @@ public class JHostty extends Application {
         addBtn.setOnMouseExited(_ -> addBtn.setStyle("-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;"));
         addBtn.setOnMouseClicked(e -> { newTabNext(tabPane); e.consume(); });
         tab.setGraphic(addBtn);
-        // Show + on tab hover too (not just direct button hover)
-        tab.getStyleableNode().setOnMouseEntered(_ -> { if (!addBtn.isHover()) addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;"); });
-        tab.getStyleableNode().setOnMouseExited(_ -> { if (!addBtn.isHover()) addBtn.setStyle("-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;"); });
+        // Show + on tab hover — defer until the tab node exists in the scene
+        var hiddenStyle = "-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;";
+        var subtleStyle = "-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;";
+        addBtn.parentProperty().addListener((_, _, parent) -> {
+            if (parent == null) return;
+            // Walk up to the tab header node
+            var node = parent;
+            while (node != null && !node.getStyleClass().contains("tab")) node = node.getParent();
+            if (node != null) {
+                var tabNode = node;
+                tabNode.setOnMouseEntered(_ -> { if (!addBtn.isHover()) addBtn.setStyle(subtleStyle); });
+                tabNode.setOnMouseExited(_ -> { if (!addBtn.isHover()) addBtn.setStyle(hiddenStyle); });
+            }
+        });
     }
 
     static void rebuildWindowMenus() {
