@@ -2395,11 +2395,11 @@ public class JHostty extends Application {
                 var lbl = new Label(item.label());
                 lbl.setStyle("-fx-font-size: 14;");
                 var cat = new Label(item.category());
-                cat.setStyle("-fx-opacity: 0.35; -fx-font-size: 11;");
+                cat.setStyle("-fx-opacity: 0.55; -fx-font-size: 11;");
                 var spacer = new Region();
                 HBox.setHgrow(spacer, Priority.ALWAYS);
                 var sc2 = new Label(item.shortcut());
-                sc2.setStyle("-fx-opacity: 0.45; -fx-font-size: 12;");
+                sc2.setStyle("-fx-opacity: 0.6; -fx-font-size: 12;");
                 var row = new HBox(8, lbl, cat, spacer, sc2);
                 row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
                 setGraphic(row);
