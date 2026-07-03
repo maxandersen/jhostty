@@ -44,8 +44,8 @@ public final class LayoutCodec {
         int start = 0;
         for (int i = 0; i < windowDesc.length(); i++) {
             var ch = windowDesc.charAt(i);
-            if (ch == '[') depth++;
-            else if (ch == ']') depth--;
+            if (ch == '[' || ch == '{') depth++;
+            else if (ch == ']' || ch == '}') depth--;
             else if (ch == ',' && depth == 0) {
                 result.add(windowDesc.substring(start, i));
                 start = i + 1;
