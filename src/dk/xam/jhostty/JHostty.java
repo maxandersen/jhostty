@@ -958,6 +958,9 @@ public class JHostty extends Application {
         try {
             Files.writeString(cssPath, """
                     .single-tab > .tab-header-area { -fx-max-height: 0; -fx-pref-height: 0; -fx-min-height: 0; visibility: hidden; }
+                    .tab-pane > .tab-header-area > .control-buttons-tab { -fx-background-color: transparent; -fx-padding: 0; }
+                    .tab-pane > .tab-header-area > .control-buttons-tab > .container { -fx-padding: 0; }
+                    .tab-pane > .tab-header-area > .control-buttons-tab > .container > .tab-down-button { visibility: hidden; -fx-padding: 0; -fx-pref-height: 0; }
                     .tab-pane { -fx-background-color: %s; }
                     .tab-pane > .tab-content-area { -fx-background-color: %s; }
                     .tab-pane > .tab-header-area { -fx-background-color: %s; -fx-padding: 0; }
@@ -1479,7 +1482,7 @@ public class JHostty extends Application {
     static Stage newWindowEmpty() {
         var tabs = new TabPane();
         tabs.getStyleClass().add("jhostty-tabs");
-        tabs.setTabDragPolicy(TabPane.TabDragPolicy.REORDER);
+        tabs.setTabDragPolicy(TabPane.TabDragPolicy.FIXED);
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.ALL_TABS);
 
         // Equal-width tabs
