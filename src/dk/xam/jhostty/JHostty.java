@@ -84,8 +84,7 @@ public class JHostty extends Application {
 
     // Layout
     static String lastGoodLayout = null;
-    static javafx.stage.Stage activeTabDragGhost = null;
-    static boolean tabDragActive = false;
+
 
     // Shared focus-follows-mouse state
     static final javafx.beans.property.BooleanProperty focusFollowsMouse = new javafx.beans.property.SimpleBooleanProperty(true);
@@ -503,91 +502,6 @@ public class JHostty extends Application {
                 tabHeader.setOnMouseExited(_ -> { if (!addBtn.isHover()) addBtn.setStyle(hidden); });
                 pane.getChildren().add(addBtn);
                 tab.getProperties().put("jhostty.addBtn", addBtn);
-
-                // Tab drag: reorder within bar, tear-off outside, drop on other window
-                final double[] dragOrigin = new double[2];
-                final boolean[] tabDragging = {false};
-
-                tabHeader.setOnMousePressed(e -> {
-                    dragOrigin[0] = e.getScreenX();
-                    dragOrigin[1] = e.getScreenY();
-                    tabDragging[0] = false;
-                    tabDragActive = true;
-                    var ws = activeWorkspace();
-                    if (ws != null) ws.hidePaneNumbers();
-                });
-                tabHeader.setOnMouseDragged(e -> {
-                    if (tabPane.getTabs().size() <= 1) return;
-                    var tabBarArea = tabPane.lookup(".tab-header-area");
-                    if (tabBarArea == null) return;
-                    var localPt = tabBarArea.screenToLocal(e.getScreenX(), e.getScreenY());
-                    if (localPt == null) return;
-                    boolean outside = localPt.getY() > tabBarArea.getBoundsInLocal().getHeight() + 30
-                                   || localPt.getY() < -30;
-                    if (outside && !tabDragging[0]) {
-                        tabDragging[0] = true;
-                        var ghost = new javafx.stage.Stage();
-                        ghost.initStyle(javafx.stage.StageStyle.TRANSPARENT);
-                        ghost.initOwner(findStage(tabPane));
-                        var title = tab.getText() != null ? tab.getText() : "Terminal";
-                        var ghostLabel = new Label(title);
-                        ghostLabel.setStyle("-fx-font-size: 12; -fx-text-fill: rgba(255,255,255,0.8);");
-                        var ghostPane = new HBox(ghostLabel);
-                        ghostPane.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 8; -fx-padding: 10 24; -fx-border-color: rgba(255,255,255,0.15); -fx-border-radius: 8;");
-                        ghostPane.setAlignment(javafx.geometry.Pos.CENTER);
-                        var ghostScene = new Scene(ghostPane);
-                        ghostScene.setFill(Color.TRANSPARENT);
-                        ghost.setScene(ghostScene);
-                        var srcStage = findStage(tabPane);
-                        double gw = srcStage != null ? Math.min(srcStage.getWidth() * 0.6, 400) : 200;
-                        double gh = srcStage != null ? Math.min(srcStage.getHeight() * 0.3, 150) : 50;
-                        ghostPane.setPrefSize(gw, gh);
-                        ghost.setWidth(gw); ghost.setHeight(gh);
-                        ghost.setX(e.getScreenX() - gw / 2); ghost.setY(e.getScreenY() - 20);
-                        ghost.show();
-                        activeTabDragGhost = ghost;
-                    }
-                    if (tabDragging[0] && activeTabDragGhost != null) {
-                        activeTabDragGhost.setX(e.getScreenX() - activeTabDragGhost.getWidth() / 2);
-                        activeTabDragGhost.setY(e.getScreenY() - 20);
-                    }
-                    if (!outside && tabDragging[0]) {
-                        tabDragging[0] = false;
-                        if (activeTabDragGhost != null) { activeTabDragGhost.close(); activeTabDragGhost = null; }
-                    }
-                });
-                tabHeader.setOnMouseReleased(e -> {
-                    tabDragActive = false;
-                    if (tabDragging[0] && activeTabDragGhost != null) {
-                        activeTabDragGhost.close(); activeTabDragGhost = null;
-                        var targetTabs = findTabPaneAtScreen(e.getScreenX(), e.getScreenY(), tabPane);
-                        if (targetTabs != null) {
-                            moveTabTo(tab, tabPane, targetTabs, e.getScreenX());
-                        } else {
-                            tearOffTab(tab, tabPane, e.getScreenX(), e.getScreenY());
-                        }
-                    } else if (!tabDragging[0] && tabPane.getTabs().size() > 1) {
-                        // Reorder: commit on release based on final cursor position
-                        var tabIdx2 = tabPane.getTabs().indexOf(tab);
-                        var allHeaders2 = tabPane.lookupAll(".tab");
-                        int targetIdx = tabIdx2;
-                        int hi = 0;
-                        for (var th : allHeaders2) {
-                            var bounds = th.localToScreen(th.getBoundsInLocal());
-                            if (bounds != null && e.getScreenX() >= bounds.getMinX() && e.getScreenX() <= bounds.getMaxX()) {
-                                targetIdx = hi;
-                                break;
-                            }
-                            hi++;
-                        }
-                        if (targetIdx != tabIdx2) {
-                            tabPane.getTabs().remove(tabIdx2);
-                            tabPane.getTabs().add(targetIdx, tab);
-                            tabPane.getSelectionModel().select(tab);
-                        }
-                    }
-                    tabDragging[0] = false;
-                });
             }
             return;
         }
@@ -595,94 +509,6 @@ public class JHostty extends Application {
 
     /** Find a TabPane (other than exclude) whose tab-header-area contains the screen point. */
     /** Find a TabPane (other than exclude) whose window contains the screen point. */
-    static TabPane findTabPaneAtScreen(double screenX, double screenY, TabPane exclude) {
-        for (var w : windows) {
-            var tp = getTabPane(w);
-            if (tp == null || tp == exclude) continue;
-            // Check if cursor is over this window at all
-            if (screenX >= w.getX() && screenX <= w.getX() + w.getWidth()
-                    && screenY >= w.getY() && screenY <= w.getY() + w.getHeight()) {
-                return tp;
-            }
-        }
-        return null;
-    }
-
-    /** Move a tab from one TabPane to another, inserting at the appropriate position. */
-    static void moveTabTo(Tab tab, TabPane src, TabPane dest, double screenX) {
-        var content = tab.getContent();
-        src.getTabs().remove(tab);
-        if (src.getTabs().isEmpty()) {
-            var stg = findStage(src);
-            if (stg != null) stg.close();
-        }
-        // Find insert position based on screenX
-        int insertIdx = dest.getTabs().size();
-        var allHeaders = dest.lookupAll(".tab");
-        int i = 0;
-        for (var th : allHeaders) {
-            var bounds = th.localToScreen(th.getBoundsInLocal());
-            if (bounds != null && screenX < bounds.getMinX() + bounds.getWidth() / 2) {
-                insertIdx = i;
-                break;
-            }
-            i++;
-        }
-        var newTab = new Tab();
-        newTab.setText(tab.getText());
-        newTab.setContent(content);
-        setupTabGraphic(newTab, dest);
-        if (content instanceof SplitWorkspace ws) configureWorkspace(ws, dest);
-        dest.getTabs().add(insertIdx, newTab);
-        dest.getSelectionModel().select(newTab);
-        if (content instanceof SplitWorkspace ws) {
-            ws.focusedPaneProperty().addListener((_, _, pane) -> {
-                if (pane != null && pane.content() instanceof TerminalView tv) {
-                    activeTerminal = tv;
-                    newTab.textProperty().unbind();
-                    newTab.textProperty().bind(tv.titleProperty());
-                    var stg = findStageFor(tv);
-                    if (stg != null) { stg.setTitle(tv.getTitle() != null ? tv.getTitle() : "jhostty"); rebuildWindowMenus(); }
-                }
-            });
-        }
-        // Focus the destination window
-        var destStage = findStage(dest);
-        if (destStage != null) { destStage.toFront(); destStage.requestFocus(); }
-    }
-
-    static void tearOffTab(Tab tab, TabPane srcTabPane, double screenX, double screenY) {
-        var content = tab.getContent();
-        srcTabPane.getTabs().remove(tab);
-        if (srcTabPane.getTabs().isEmpty()) {
-            var stg = findStage(srcTabPane);
-            if (stg != null) stg.close();
-        }
-        var newStage = newWindowEmpty();
-        if (newStage == null) return;
-        newStage.setX(screenX - 200);
-        newStage.setY(screenY - 30);
-        var newTabs = getTabPane(newStage);
-        if (newTabs == null) return;
-        var newTab = new Tab();
-        newTab.setText(tab.getText());
-        newTab.setContent(content);
-        setupTabGraphic(newTab, newTabs);
-        if (content instanceof SplitWorkspace ws) configureWorkspace(ws, newTabs);
-        newTabs.getTabs().add(newTab);
-        newTabs.getSelectionModel().select(newTab);
-        if (content instanceof SplitWorkspace ws) {
-            ws.focusedPaneProperty().addListener((_, _, pane) -> {
-                if (pane != null && pane.content() instanceof TerminalView tv) {
-                    activeTerminal = tv;
-                    newTab.textProperty().unbind();
-                    newTab.textProperty().bind(tv.titleProperty());
-                    var stg = findStageFor(tv);
-                    if (stg != null) { stg.setTitle(tv.getTitle() != null ? tv.getTitle() : "jhostty"); rebuildWindowMenus(); }
-                }
-            });
-        }
-    }
 
     static void rebuildWindowMenus() {
         for (var menu : windowMenus) {
@@ -2012,7 +1838,7 @@ public class JHostty extends Application {
 
         // Show pane numbers when Cmd/Ctrl is held (only if multiple panes)
         scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.isShortcutDown() && !e.isShiftDown() && !e.isAltDown() && activeTabDragGhost == null && !tabDragActive) {
+            if (e.isShortcutDown() && !e.isShiftDown() && !e.isAltDown()) {
                 var ws = activeWorkspace();
                 if (ws != null && ws.allLeaves().size() > 1 && !ws.isDragging()) ws.showPaneNumbers();
             }
@@ -2024,11 +1850,6 @@ public class JHostty extends Application {
             }
         });
         scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            // Escape cancels tab drag
-            if (e.getCode() == KeyCode.ESCAPE && activeTabDragGhost != null) {
-                activeTabDragGhost.close(); activeTabDragGhost = null;
-                e.consume(); return;
-            }
             if (debug && e.isShortcutDown()) debug("KeyEvent: code=" + e.getCode() + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown() + " shift=" + e.isShiftDown());
             if (!e.isShortcutDown()) return;
             switch (e.getCode()) {

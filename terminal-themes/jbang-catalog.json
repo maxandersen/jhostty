@@ -1,0 +1,12 @@
+{
+  "aliases": {
+    "terminal-themes": {
+      "script-ref": "terminal-themes.java",
+      "description": "Terminal color themes API — list, search, and inspect bundled themes"
+    },
+    "theme-sync": {
+      "script-ref": "theme-sync.java",
+      "description": "Sync terminal themes from upstream sources (build-time tool)"
+    }
+  }
+}
