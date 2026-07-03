@@ -4,6 +4,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.*;
 
+import javafx.application.Platform;
 import javafx.animation.*;
 import javafx.beans.property.*;
 import javafx.collections.*;
@@ -674,12 +675,17 @@ class SplitWorkspace extends Region {
                 + " -fx-background-color: rgba(0,0,0,0.4); -fx-background-radius: 12; -fx-padding: 8 20;");
             numLabel.setMouseTransparent(true);
             numLabel.setManaged(false);
-            numLabel.autosize();
-            double lw = numLabel.prefWidth(-1);
-            double lh = numLabel.prefHeight(-1);
-            numLabel.resizeRelocate(r.x() + (r.w() - lw) / 2, r.y() + (r.h() - lh) / 2, lw, lh);
             overlayLayer.getChildren().add(numLabel);
             numberOverlays.add(numLabel);
+            // Position after adding to scene so sizing works
+            final var rect = r;
+            Platform.runLater(() -> {
+                numLabel.applyCss();
+                numLabel.autosize();
+                double lw = numLabel.prefWidth(-1);
+                double lh = numLabel.prefHeight(-1);
+                numLabel.resizeRelocate(rect.x() + (rect.w() - lw) / 2, rect.y() + (rect.h() - lh) / 2, lw, lh);
+            });
         }
     }
 
