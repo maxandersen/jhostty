@@ -85,6 +85,7 @@ public class JHostty extends Application {
     // Layout
     static String lastGoodLayout = null;
     static javafx.stage.Stage activeTabDragGhost = null;
+    static boolean tabDragActive = false;
 
     // Shared focus-follows-mouse state
     static final javafx.beans.property.BooleanProperty focusFollowsMouse = new javafx.beans.property.SimpleBooleanProperty(true);
@@ -506,13 +507,15 @@ public class JHostty extends Application {
                 // Tab tear-off: drag outside tab bar shows ghost, release creates window
                 final double[] dragOrigin = new double[2];
                 final boolean[] tabDragging = {false};
+                final boolean[] tabReordering = {false};
 
 
                 tabHeader.setOnMousePressed(e -> {
                     dragOrigin[0] = e.getScreenX();
                     dragOrigin[1] = e.getScreenY();
                     tabDragging[0] = false;
-                    // Hide pane numbers if showing
+                    tabReordering[0] = false;
+                    tabDragActive = true;
                     var ws = activeWorkspace();
                     if (ws != null) ws.hidePaneNumbers();
                 });
@@ -558,28 +561,35 @@ public class JHostty extends Application {
                     }
                     // Reorder within tab bar when dragging horizontally
                     if (!outside && !tabDragging[0]) {
-                        var tabIdx2 = tabPane.getTabs().indexOf(tab);
-                        var allHeaders2 = tabPane.lookupAll(".tab");
-                        int targetIdx = tabIdx2;
-                        int hi = 0;
-                        for (var th : allHeaders2) {
-                            if (hi == tabIdx2) { hi++; continue; }
-                            var bounds = th.localToScreen(th.getBoundsInLocal());
-                            if (bounds != null) {
-                                double mid = bounds.getMinX() + bounds.getWidth() / 2;
-                                if (hi < tabIdx2 && e.getScreenX() < mid) { targetIdx = hi; break; }
-                                if (hi > tabIdx2 && e.getScreenX() < mid) { targetIdx = hi; break; }
-                            }
-                            hi++;
+                        double dx = e.getScreenX() - dragOrigin[0];
+                        if (Math.abs(dx) > 20) { // threshold to start reorder
+                            tabReordering[0] = true;
                         }
-                        if (targetIdx != tabIdx2) {
-                            tabPane.getTabs().remove(tabIdx2);
-                            tabPane.getTabs().add(targetIdx, tab);
-                            tabPane.getSelectionModel().select(tab);
+                        if (tabReordering[0]) {
+                            var tabIdx2 = tabPane.getTabs().indexOf(tab);
+                            // Find which tab position the cursor is over
+                            var allHeaders2 = tabPane.lookupAll(".tab");
+                            int targetIdx = -1;
+                            int hi = 0;
+                            for (var th : allHeaders2) {
+                                var bounds = th.localToScreen(th.getBoundsInLocal());
+                                if (bounds != null && e.getScreenX() >= bounds.getMinX() && e.getScreenX() <= bounds.getMaxX()) {
+                                    targetIdx = hi;
+                                    break;
+                                }
+                                hi++;
+                            }
+                            if (targetIdx >= 0 && targetIdx != tabIdx2) {
+                                tabPane.getTabs().remove(tabIdx2);
+                                tabPane.getTabs().add(targetIdx, tab);
+                                tabPane.getSelectionModel().select(tab);
+                            }
                         }
                     }
                 });
                 tabHeader.setOnMouseReleased(e -> {
+                    tabReordering[0] = false;
+                    tabDragActive = false;
                     if (tabDragging[0] && activeTabDragGhost != null) {
                         activeTabDragGhost.close(); activeTabDragGhost = null;
                         // Check if over another window's tab bar
@@ -2016,7 +2026,7 @@ public class JHostty extends Application {
 
         // Show pane numbers when Cmd/Ctrl is held (only if multiple panes)
         scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.isShortcutDown() && !e.isShiftDown() && !e.isAltDown() && activeTabDragGhost == null) {
+            if (e.isShortcutDown() && !e.isShiftDown() && !e.isAltDown() && activeTabDragGhost == null && !tabDragActive) {
                 var ws = activeWorkspace();
                 if (ws != null && ws.allLeaves().size() > 1 && !ws.isDragging()) ws.showPaneNumbers();
             }
