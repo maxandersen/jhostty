@@ -1123,6 +1123,10 @@ public class JHostty extends Application {
                     .jhostty-settings .combo-box-popup .list-cell:filled:selected { -fx-background-color: %s; -fx-text-fill: %s; }
                     .jhostty-settings .slider .track { -fx-background-color: %s; -fx-background-radius: 3; }
                     .jhostty-settings .slider .thumb { -fx-background-color: %s; }
+                    .jhostty-palette-list { -fx-background-color: transparent; -fx-background: transparent; }
+                    .jhostty-palette-list .list-cell { -fx-text-fill: %s; -fx-background-color: transparent; -fx-padding: 2 8; }
+                    .jhostty-palette-list .list-cell:selected { -fx-background-color: %s; -fx-background-radius: 4; }
+                    .jhostty-palette-list .list-cell:selected .label { -fx-text-fill: %s; }
                     """.formatted(
                         dividerCss, dividerCss,
                         tabBarBg, tabBarBg, tabSelectedBg, tabTextCss, tabSelectedTextCss,
@@ -1149,7 +1153,9 @@ public class JHostty extends Application {
                         dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
                         selCss, selText,
                         dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
-                        dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)"
+                        dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)",
+                        // palette list
+                        fgCss, selCss, selText
                         ));
         } catch (IOException _) {}
     }
@@ -2380,27 +2386,23 @@ public class JHostty extends Application {
         var resultList = new ListView<PaletteItem>();
         resultList.getItems().addAll(allItems);
         resultList.setPrefHeight(350);
-        resultList.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        resultList.getStyleClass().add("jhostty-palette-list");
+        resultList.setFixedCellSize(28);
         resultList.setCellFactory(_ -> new javafx.scene.control.ListCell<>() {
             @Override protected void updateItem(PaletteItem item, boolean empty) {
                 super.updateItem(item, empty);
-                if (empty || item == null) { setGraphic(null); return; }
+                if (empty || item == null) { setGraphic(null); setText(null); return; }
                 var lbl = new Label(item.label());
-                lbl.setStyle("-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 14;");
+                lbl.setStyle("-fx-font-size: 14;");
                 var cat = new Label(item.category());
-                cat.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 11;");
+                cat.setStyle("-fx-opacity: 0.35; -fx-font-size: 11;");
                 var spacer = new Region();
                 HBox.setHgrow(spacer, Priority.ALWAYS);
                 var sc2 = new Label(item.shortcut());
-                sc2.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 12;");
+                sc2.setStyle("-fx-opacity: 0.45; -fx-font-size: 12;");
                 var row = new HBox(8, lbl, cat, spacer, sc2);
                 row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
                 setGraphic(row);
-                if (isSelected()) {
-                    setStyle("-fx-background-color: rgba(255,255,255,0.12); -fx-background-radius: 6; -fx-padding: 4 8;");
-                } else {
-                    setStyle("-fx-background-color: transparent; -fx-padding: 4 8;");
-                }
             }
         });
 
