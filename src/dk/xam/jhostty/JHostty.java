@@ -296,7 +296,33 @@ public class JHostty extends Application {
         toggleSidebarItem.setAccelerator(new KeyCodeCombination(KeyCode.BACK_SLASH, KeyCombination.SHORTCUT_DOWN));
         toggleSidebarItem.setOnAction(_ -> toggleSidebar());
 
-        var viewMenu = new Menu("View", null, toggleSidebarItem, new SeparatorMenuItem(), zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu, new SeparatorMenuItem(), reloadConfig);
+        var animToggle = new CheckMenuItem("Animations");
+        animToggle.setSelected(true);
+        animToggle.setOnAction(_ -> {
+            for (var w : windows) {
+                var tp2 = getTabPane(w);
+                if (tp2 != null) { for (var t : tp2.getTabs()) { if (t.getContent() instanceof SplitWorkspace ws) ws.animationsEnabledProperty().set(animToggle.isSelected()); } }
+            }
+        });
+
+        var pastelToggle = new CheckMenuItem("Pastel Tinting");
+        pastelToggle.setSelected(true);
+        pastelToggle.setOnAction(_ -> {
+            for (var w : windows) {
+                var tp2 = getTabPane(w);
+                if (tp2 != null) { for (var t : tp2.getTabs()) { if (t.getContent() instanceof SplitWorkspace ws) ws.pastelTintingProperty().set(pastelToggle.isSelected()); } }
+            }
+        });
+
+        var settingsToggle = new MenuItem("Toggle Settings Panel");
+        settingsToggle.setAccelerator(KeyCombination.keyCombination("Shortcut+,"));
+        settingsToggle.setOnAction(_ -> {
+            var bp = (BorderPane) tabs.getScene().getRoot();
+            var sp = bp.getRight();
+            if (sp != null) { var vis = !sp.isVisible(); sp.setVisible(vis); sp.setManaged(vis); }
+        });
+
+        var viewMenu = new Menu("View", null, toggleSidebarItem, new SeparatorMenuItem(), zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu, new SeparatorMenuItem(), animToggle, pastelToggle, new SeparatorMenuItem(), settingsToggle, reloadConfig);
 
         return new MenuBar(shellMenu, viewMenu, windowMenu);
     }
