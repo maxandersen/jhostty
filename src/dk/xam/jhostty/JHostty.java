@@ -2431,20 +2431,13 @@ public class JHostty extends Application {
         };
 
         searchField.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.getCode() == KeyCode.DOWN) {
-                var idx = resultList.getSelectionModel().getSelectedIndex();
-                resultList.getSelectionModel().select(Math.min(idx + 1, resultList.getItems().size() - 1));
-                resultList.scrollTo(resultList.getSelectionModel().getSelectedIndex());
-                e.consume();
-            } else if (e.getCode() == KeyCode.UP) {
-                var idx = resultList.getSelectionModel().getSelectedIndex();
-                resultList.getSelectionModel().select(Math.max(idx - 1, 0));
-                resultList.scrollTo(resultList.getSelectionModel().getSelectedIndex());
-                e.consume();
-            } else if (e.getCode() == KeyCode.ENTER) {
-                execRef[0].run(); e.consume();
-            } else if (e.getCode() == KeyCode.ESCAPE) {
-                rootStack.getChildren().remove(paletteOverlay); paletteOverlay = null; e.consume();
+            switch (e.getCode()) {
+                case DOWN -> { resultList.requestFocus(); resultList.getSelectionModel().select(0); e.consume(); }
+                case UP -> { var sz = resultList.getItems().size(); if (sz > 0) { resultList.requestFocus(); resultList.getSelectionModel().select(sz - 1); resultList.scrollTo(sz - 1); } e.consume(); }
+                case ENTER -> { execRef[0].run(); e.consume(); }
+                case ESCAPE -> { rootStack.getChildren().remove(paletteOverlay); paletteOverlay = null; e.consume(); }
+                case TAB -> e.consume();
+                default -> {}
             }
         });
 
@@ -2458,20 +2451,28 @@ public class JHostty extends Application {
 
         // Arrow/Enter/Escape on the list itself
         resultList.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.getCode() == KeyCode.ENTER) { execRef[0].run(); e.consume(); }
-            else if (e.getCode() == KeyCode.ESCAPE) { rootStack.getChildren().remove(paletteOverlay); paletteOverlay = null; e.consume(); }
-            // Typing goes to search field
-            else if (e.getCode().isLetterKey() || e.getCode().isDigitKey() || e.getCode() == KeyCode.BACK_SPACE) {
-                searchField.requestFocus();
-                if (e.getCode() == KeyCode.BACK_SPACE) searchField.deletePreviousChar();
-                else searchField.appendText(e.getText());
-                e.consume();
+            switch (e.getCode()) {
+                case ENTER -> { execRef[0].run(); e.consume(); }
+                case ESCAPE -> { rootStack.getChildren().remove(paletteOverlay); paletteOverlay = null; e.consume(); }
+                case UP -> {
+                    if (resultList.getSelectionModel().getSelectedIndex() == 0) {
+                        searchField.requestFocus(); e.consume();
+                    }
+                }
+                case TAB -> e.consume();
+                default -> {
+                    if (e.getCode().isLetterKey() || e.getCode().isDigitKey() || e.getCode() == KeyCode.BACK_SPACE || e.getCode() == KeyCode.SPACE) {
+                        searchField.requestFocus();
+                        if (e.getCode() == KeyCode.BACK_SPACE) searchField.deletePreviousChar();
+                        else if (e.getText() != null && !e.getText().isEmpty()) searchField.appendText(e.getText());
+                        e.consume();
+                    }
+                }
             }
         });
 
         paletteOverlay = new javafx.scene.layout.StackPane(paletteBox);
-        paletteOverlay.setStyle("-fx-background-color: transparent;");
-        paletteOverlay.setPickOnBounds(false);
+        paletteOverlay.setStyle("-fx-background-color: rgba(0,0,0,0.3);");
         javafx.scene.layout.StackPane.setAlignment(paletteBox, javafx.geometry.Pos.TOP_CENTER);
         javafx.scene.layout.StackPane.setMargin(paletteBox, new javafx.geometry.Insets(60, 0, 0, 0));
 
