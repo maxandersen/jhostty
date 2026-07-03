@@ -1996,116 +1996,85 @@ public class JHostty extends Application {
 
     // --- Help ---
 
-    static Stage helpStage;
-
     static void showHelp() {
-        if (helpStage != null && helpStage.isShowing()) { helpStage.toFront(); helpStage.requestFocus(); return; }
-
         var sc = IS_MAC ? "\u2318" : "Ctrl+";
         var sh = IS_MAC ? "\u21E7" : "Shift+";
+        var mod = IS_MAC ? "\u2318" : "Ctrl";
 
-        var content = """
-            <html>
-            <head><style>
-                body { font-family: -apple-system, 'Segoe UI', sans-serif; background: %s; color: %s;
-                       padding: 24px 32px; line-height: 1.6; font-size: 13px; }
-                h1 { font-size: 22px; margin: 0 0 4px 0; }
-                .subtitle { color: %s; font-size: 13px; margin-bottom: 20px; }
-                h2 { font-size: 15px; margin: 20px 0 8px 0; border-bottom: 1px solid %s; padding-bottom: 4px; }
-                table { border-collapse: collapse; width: 100%%; margin: 8px 0; }
-                td { padding: 3px 12px 3px 0; vertical-align: top; }
-                td:first-child { font-weight: 500; white-space: nowrap; color: %s; }
-                .section { margin: 12px 0; }
-                kbd { background: %s; padding: 1px 6px; border-radius: 3px; font-size: 12px; font-family: monospace; }
-                ul { padding-left: 20px; margin: 4px 0; }
-                li { margin: 2px 0; }
-            </style></head>
-            <body>
-                <h1>\u2B1A jhostty</h1>
-                <div class="subtitle">A modern terminal emulator built with JavaFX and Ghostty</div>
+        // ANSI escape codes
+        var B = "\033[1m";      // bold
+        var D = "\033[2m";      // dim
+        var U = "\033[4m";      // underline
+        var R = "\033[0m";      // reset
+        var C = "\033[36m";     // cyan
+        var Y = "\033[33m";     // yellow
+        var G = "\033[32m";     // green
+        var M = "\033[35m";     // magenta
 
-                <h2>Keyboard Shortcuts</h2>
-                <table>
-                <tr><td><kbd>%sT</kbd></td><td>New tab (inserted after current)</td></tr>
-                <tr><td><kbd>%sN</kbd></td><td>New window</td></tr>
-                <tr><td><kbd>%sD</kbd></td><td>Add column (split right)</td></tr>
-                <tr><td><kbd>%s%sD</kbd></td><td>Add row (split down)</td></tr>
-                <tr><td><kbd>%sW</kbd></td><td>Close pane / tab</td></tr>
-                <tr><td><kbd>%sQ</kbd></td><td>Quit</td></tr>
-                <tr><td></td><td></td></tr>
-                <tr><td><kbd>%s+</kbd> / <kbd>%s-</kbd></td><td>Zoom in / out</td></tr>
-                <tr><td><kbd>%s0</kbd></td><td>Reset zoom</td></tr>
-                <tr><td><kbd>Pinch</kbd></td><td>Trackpad zoom</td></tr>
-                <tr><td></td><td></td></tr>
-                <tr><td><kbd>%s1</kbd>\u2013<kbd>%s9</kbd></td><td>Focus pane by number</td></tr>
-                <tr><td><kbd>%sTab</kbd></td><td>Focus next pane</td></tr>
-                <tr><td><kbd>%s%sEnter</kbd></td><td>Zoom / unzoom pane</td></tr>
-                <tr><td><kbd>%s%s\u2190\u2191\u2192\u2193</kbd></td><td>Resize focused pane</td></tr>
-                <tr><td></td><td></td></tr>
-                <tr><td><kbd>%s/</kbd></td><td>Toggle sidebar</td></tr>
-                <tr><td><kbd>%s,</kbd></td><td>Toggle settings panel</td></tr>
-                </table>
+        var help = B + "\u2B1A jhostty" + R + "  \u2014 A modern terminal emulator\n" +
+            D + "Built with JavaFX and Ghostty" + R + "\n\n" +
+            B + U + "Keyboard Shortcuts" + R + "\n\n" +
+            C + "  " + sc + "T" + R + "          New tab (after current)\n" +
+            C + "  " + sc + "N" + R + "          New window\n" +
+            C + "  " + sc + "D" + R + "          Add column (split right)\n" +
+            C + "  " + sc + sh + "D" + R + "         Add row (split down)\n" +
+            C + "  " + sc + "W" + R + "          Close pane / tab\n" +
+            C + "  " + sc + "Q" + R + "          Quit\n\n" +
+            C + "  " + sc + "+" + R + " / " + C + sc + "-" + R + "    Zoom in / out\n" +
+            C + "  " + sc + "0" + R + "          Reset zoom\n" +
+            C + "  Pinch" + R + "        Trackpad zoom\n\n" +
+            C + "  " + sc + "1" + R + "\u2013" + C + sc + "9" + R + "      Focus pane by number\n" +
+            C + "  " + sc + "Tab" + R + "        Focus next pane\n" +
+            C + "  " + sc + sh + "Enter" + R + "    Zoom / unzoom pane\n" +
+            C + "  " + sc + sh + "\u2190\u2191\u2192\u2193" + R + "       Resize focused pane\n\n" +
+            C + "  " + sc + "/" + R + "          Toggle sidebar\n" +
+            C + "  " + sc + "," + R + "          Toggle settings panel\n" +
+            C + "  " + sc + sh + "/" + R + "         This help\n\n" +
+            B + U + "Split Panes" + R + "\n\n" +
+            Y + "  \u2022" + R + " Hold " + C + mod + R + " to see pane numbers, press digit to jump\n" +
+            Y + "  \u2022" + R + " Drag pane header to reorder or swap panes\n" +
+            Y + "  \u2022" + R + " Drag pane outside window to create new window\n" +
+            Y + "  \u2022" + R + " Double-click pane header to zoom/unzoom\n" +
+            Y + "  \u2022" + R + " Drag dividers to resize; corners for both axes\n\n" +
+            B + U + "Tabs" + R + "\n\n" +
+            G + "  \u2022" + R + " Click " + B + "+" + R + " on a tab to add new tab next to it\n" +
+            G + "  \u2022" + R + " Click " + B + "\u2715" + R + " to close a tab\n" +
+            G + "  \u2022" + R + " Drag tabs to reorder\n\n" +
+            B + U + "Features" + R + "\n\n" +
+            M + "  \u2022" + R + " Theme support (View \u2192 Theme or Settings panel)\n" +
+            M + "  \u2022" + R + " Font selection (View \u2192 Font)\n" +
+            M + "  \u2022" + R + " Focus follows mouse\n" +
+            M + "  \u2022" + R + " Pastel pane tinting for visual distinction\n" +
+            M + "  \u2022" + R + " zmx session integration\n" +
+            M + "  \u2022" + R + " Layout save/restore across restarts\n" +
+            M + "  \u2022" + R + " Drag & drop files onto terminal\n\n" +
+            B + U + "Configuration" + R + "\n\n" +
+            D + "  User config:" + R + "   ~/.config/jhostty/jhostty.properties\n" +
+            D + "  Auto-saved:" + R + "    ~/.config/jhostty/jhostty-state.properties\n" +
+            D + "  Keys:" + R + "          theme, font, font-size, shell\n";
 
-                <h2>Split Panes</h2>
-                <ul>
-                <li>Hold <kbd>%s</kbd> to see pane numbers, then press a digit to jump</li>
-                <li>Drag a pane header to reorder or swap panes</li>
-                <li>Drag a pane outside the window to create a new window</li>
-                <li>Double-click a pane header to zoom/unzoom</li>
-                <li>Drag dividers to resize; drag corners to resize both axes</li>
-                </ul>
-
-                <h2>Tabs</h2>
-                <ul>
-                <li>Click <b>+</b> on a tab to add a new tab next to it</li>
-                <li>Click <b>\u2715</b> to close a tab</li>
-                <li>Drag tabs to reorder</li>
-                </ul>
-
-                <h2>Features</h2>
-                <ul>
-                <li>Theme support (View \u2192 Theme or Settings panel)</li>
-                <li>Font selection (View \u2192 Font)</li>
-                <li>Focus follows mouse (View menu or Settings)</li>
-                <li>Pastel pane tinting for visual distinction</li>
-                <li>zmx session integration (Shell \u2192 Attach zmx Session)</li>
-                <li>Layout save/restore across restarts</li>
-                <li>Drag & drop files onto terminal to paste paths</li>
-                </ul>
-
-                <h2>Configuration</h2>
-                <div class="section">
-                User config: <kbd>~/.config/jhostty/jhostty.properties</kbd><br>
-                Auto-saved state: <kbd>~/.config/jhostty/jhostty-state.properties</kbd><br>
-                Available keys: <kbd>theme</kbd>, <kbd>font</kbd>, <kbd>font-size</kbd>, <kbd>shell</kbd>
-                </div>
-            </body></html>
-            """.formatted(
-                hexColor(currentTheme.background()), hexColor(currentTheme.foreground()),
-                hexColor(currentTheme.foreground().deriveColor(0,1,1,0.6)),
-                hexColor(currentTheme.foreground().deriveColor(0,1,1,0.2)),
-                hexColor(currentTheme.foreground().deriveColor(0,1,1,0.8)),
-                hexColor(currentTheme.background().brighter()),
-                sc, sc, sc, sc, sh, sc, sc,
-                sc, sc, sc,
-                sc, sc, sc, sc, sh, sc, sh,
-                sc, sc, IS_MAC ? "\u2318" : "Ctrl"
-            );
-
-        var webView = new javafx.scene.web.WebView();
-        webView.getEngine().loadContent(content);
-        webView.setContextMenuEnabled(false);
-
-        var scene = new Scene(webView, 520, 650);
-        helpStage = new Stage();
-        helpStage.setTitle("jhostty Help");
-        helpStage.setScene(scene);
-        helpStage.setOnHidden(_ -> helpStage = null);
-        helpStage.show();
-    }
-
-    static String hexColor(Color c) {
-        return String.format("#%02x%02x%02x", (int)(c.getRed()*255), (int)(c.getGreen()*255), (int)(c.getBlue()*255));
+        // Run in a terminal pane via sh -c 'echo ... | less -R'
+        var escaped = help.replace("'", "'\\''");
+        var cmd = List.of("sh", "-c", "echo '" + escaped + "' | less -R");
+        var tabPane = findActiveTabPane();
+        if (tabPane == null) return;
+        var view = createTerminal(cmd);
+        if (view == null) return;
+        newTab(tabPane);
+        // Replace the new tab's workspace content with our help terminal
+        var ws = activeWorkspace();
+        if (ws != null) {
+            var leaves = ws.allLeaves();
+            if (!leaves.isEmpty()) {
+                // Close the default terminal and replace
+                var defaultLeaf = leaves.getFirst();
+                if (defaultLeaf.content() instanceof TerminalView defaultTv) {
+                    Thread.ofVirtual().start(defaultTv::close);
+                }
+                defaultLeaf.setContent(view);
+                ws.requestLayout();
+            }
+        }
     }
 
     static TabPane findActiveTabPane() {
