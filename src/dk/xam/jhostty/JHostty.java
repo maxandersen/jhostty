@@ -464,8 +464,7 @@ public class JHostty extends Application {
         Platform.runLater(JHostty::saveState);
     }
 
-    /** Set up a tab's graphic with title label, + button, and ✕ button. */
-    /** Set up tab with built-in title/close and a + button via graphic. */
+    /** Set up tab with built-in title/close and a + button appended on the right. */
     static void setupTabGraphic(Tab tab, TabPane tabPane) {
         tab.setClosable(true);
         tab.setOnClosed(_ -> {
@@ -475,24 +474,31 @@ public class JHostty extends Application {
                 if (stg != null) stg.close();
             }
         });
-        var addBtn = new Label("+");
-        addBtn.setStyle("-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;");
-        addBtn.setOnMouseEntered(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;"));
-        addBtn.setOnMouseExited(_ -> addBtn.setStyle("-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;"));
-        addBtn.setOnMouseClicked(e -> { newTabNext(tabPane); e.consume(); });
-        tab.setGraphic(addBtn);
-        // Show + on tab hover — defer until the tab node exists in the scene
-        var hiddenStyle = "-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;";
-        var subtleStyle = "-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 4 0 0;";
-        addBtn.parentProperty().addListener((_, _, parent) -> {
-            if (parent == null) return;
-            // Walk up to the tab header node
-            var node = parent;
-            while (node != null && !node.getStyleClass().contains("tab")) node = node.getParent();
-            if (node != null) {
-                var tabNode = node;
-                tabNode.setOnMouseEntered(_ -> { if (!addBtn.isHover()) addBtn.setStyle(subtleStyle); });
-                tabNode.setOnMouseExited(_ -> { if (!addBtn.isHover()) addBtn.setStyle(hiddenStyle); });
+        // Defer adding the + button until the tab's skin node exists
+        Platform.runLater(() -> {
+            var tabNode = tab.getStyleableNode();
+            if (tabNode == null) return;
+            var addBtn = new Label("+");
+            var hiddenStyle = "-fx-text-fill: transparent; -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 0 0 4;";
+            var subtleStyle = "-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 0 0 4;";
+            var brightStyle = "-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 12; -fx-cursor: hand; -fx-padding: 0 0 0 4;";
+            addBtn.setStyle(hiddenStyle);
+            addBtn.setOnMouseEntered(_ -> addBtn.setStyle(brightStyle));
+            addBtn.setOnMouseExited(_ -> { if (tabNode.isHover()) addBtn.setStyle(subtleStyle); else addBtn.setStyle(hiddenStyle); });
+            addBtn.setOnMouseClicked(e -> { newTabNext(tabPane); e.consume(); });
+            tabNode.setOnMouseEntered(_ -> { if (!addBtn.isHover()) addBtn.setStyle(subtleStyle); });
+            tabNode.setOnMouseExited(_ -> { if (!addBtn.isHover()) addBtn.setStyle(hiddenStyle); });
+            // Append + to the tab's internal container (after close button)
+            if (tabNode instanceof javafx.scene.layout.Pane p) {
+                // Find the tab-container inside
+                for (var child : p.getChildren()) {
+                    if (child.getStyleClass().contains("tab-container") && child instanceof javafx.scene.layout.Pane container) {
+                        container.getChildren().add(addBtn);
+                        return;
+                    }
+                }
+                // Fallback: add directly
+                p.getChildren().add(addBtn);
             }
         });
     }
