@@ -258,7 +258,11 @@ public class JHostty extends Application {
             }
         });
 
-        var shellMenu = new Menu("Shell", null, newWindowItem, newTabItem, splitH, splitV, new SeparatorMenuItem(), zmxMenu, new SeparatorMenuItem(), closeItem);
+        var showAllTabs = new MenuItem("Show All Tabs");
+        showAllTabs.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+T"));
+        showAllTabs.setOnAction(_ -> toggleTabOverview(tabs));
+
+        var shellMenu = new Menu("Shell", null, newWindowItem, newTabItem, showAllTabs, splitH, splitV, new SeparatorMenuItem(), zmxMenu, new SeparatorMenuItem(), closeItem);
 
         var windowMenu = new Menu("Window");
         windowMenus.add(windowMenu);
@@ -1937,7 +1941,7 @@ public class JHostty extends Application {
             switch (e.getCode()) {
                 case Q -> { quit(); e.consume(); }
                 case N -> { newWindow(); e.consume(); }
-                case T -> { newTabNext(tabs); e.consume(); }
+                case T -> { if (e.isShiftDown()) toggleTabOverview(tabs); else newTabNext(tabs); e.consume(); }
                 case D -> { if (e.isShiftDown()) splitActive(Orientation.HORIZONTAL); else splitActive(Orientation.VERTICAL); e.consume(); }
                 case W -> { closeActive(tabs, stage); e.consume(); }
                 case SLASH -> { toggleSidebar(); e.consume(); }
@@ -2066,6 +2070,141 @@ public class JHostty extends Application {
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
         Platform.runLater(JHostty::saveState);
+    }
+
+    // --- Tab Overview ---
+
+    static javafx.scene.layout.StackPane tabOverlayPane;
+    static boolean tabOverviewAnimating = false;
+
+    static void toggleTabOverview(TabPane tabs) {
+        var stage = findStage(tabs);
+        if (stage == null || tabOverviewAnimating) return;
+        var root = (BorderPane) stage.getScene().getRoot();
+
+        // If already showing, animate out and dismiss
+        if (tabOverlayPane != null && tabOverlayPane.getParent() == root) {
+            animateOverviewOut(root);
+            return;
+        }
+
+        // Build grid of tab snapshots
+        var grid = new javafx.scene.layout.FlowPane(16, 16);
+        grid.setAlignment(javafx.geometry.Pos.CENTER);
+        grid.setPadding(new javafx.geometry.Insets(40));
+
+        var selectedTab = tabs.getSelectionModel().getSelectedItem();
+
+        for (var tab : tabs.getTabs()) {
+            var content = tab.getContent();
+            if (content == null) continue;
+
+            // Snapshot the tab content
+            var snapshot = content.snapshot(null, null);
+            var imgView = new javafx.scene.image.ImageView(snapshot);
+            imgView.setFitWidth(220);
+            imgView.setPreserveRatio(true);
+            imgView.setSmooth(true);
+
+            var title = tab.getText() != null && !tab.getText().isBlank() ? tab.getText() : "Terminal";
+            var titleLbl = new Label(title);
+            titleLbl.setStyle("-fx-text-fill: rgba(255,255,255,0.8); -fx-font-size: 11;");
+            titleLbl.setMaxWidth(220);
+            titleLbl.setAlignment(javafx.geometry.Pos.CENTER);
+
+            var card = new VBox(4, titleLbl, imgView);
+            card.setAlignment(javafx.geometry.Pos.CENTER);
+            card.setPadding(new javafx.geometry.Insets(8));
+            card.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 10; -fx-cursor: hand;");
+
+            if (tab == selectedTab) {
+                card.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 10; -fx-cursor: hand; -fx-border-color: #3B82F6; -fx-border-width: 2; -fx-border-radius: 10;");
+            }
+
+            card.setOnMouseEntered(_ -> {
+                if (tab != selectedTab) card.setStyle("-fx-background-color: rgba(60,60,60,0.9); -fx-background-radius: 10; -fx-cursor: hand;");
+            });
+            card.setOnMouseExited(_ -> {
+                if (tab == selectedTab)
+                    card.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 10; -fx-cursor: hand; -fx-border-color: #3B82F6; -fx-border-width: 2; -fx-border-radius: 10;");
+                else
+                    card.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 10; -fx-cursor: hand;");
+            });
+
+            card.setOnMouseClicked(_ -> {
+                tabs.getSelectionModel().select(tab);
+                animateOverviewOut(root);
+            });
+
+            grid.getChildren().add(card);
+        }
+
+        // "+" card
+        var plusLbl = new Label("+");
+        plusLbl.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 36;");
+        var plusCard = new VBox(plusLbl);
+        plusCard.setAlignment(javafx.geometry.Pos.CENTER);
+        plusCard.setPrefSize(220, 140);
+        plusCard.setStyle("-fx-background-color: rgba(80,80,80,0.5); -fx-background-radius: 10; -fx-cursor: hand;");
+        plusCard.setOnMouseEntered(_ -> plusCard.setStyle("-fx-background-color: rgba(100,100,100,0.6); -fx-background-radius: 10; -fx-cursor: hand;"));
+        plusCard.setOnMouseExited(_ -> plusCard.setStyle("-fx-background-color: rgba(80,80,80,0.5); -fx-background-radius: 10; -fx-cursor: hand;"));
+        plusCard.setOnMouseClicked(_ -> {
+            animateOverviewOut(root);
+            Platform.runLater(() -> newTabNext(tabs));
+        });
+        grid.getChildren().add(plusCard);
+
+        // Wrap in scrollable overlay
+        var scroll = new javafx.scene.control.ScrollPane(grid);
+        scroll.setFitToWidth(true);
+        scroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+
+        tabOverlayPane = new javafx.scene.layout.StackPane(scroll);
+        tabOverlayPane.setStyle("-fx-background-color: rgba(0,0,0,0.75);");
+
+        // Click background to dismiss
+        tabOverlayPane.setOnMouseClicked(e -> {
+            if (e.getTarget() == tabOverlayPane || e.getTarget() == scroll) animateOverviewOut(root);
+        });
+
+        // Escape to dismiss
+        tabOverlayPane.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() == KeyCode.ESCAPE) { animateOverviewOut(root); e.consume(); }
+        });
+
+        // Animate in: scale from 1.0 (full size) down to grid, fade background in
+        root.getChildren().add(tabOverlayPane);
+        tabOverlayPane.requestFocus();
+        tabOverlayPane.setOpacity(0);
+        grid.setScaleX(1.3); grid.setScaleY(1.3);
+        tabOverviewAnimating = true;
+        var fadeIn = new javafx.animation.FadeTransition(javafx.util.Duration.millis(200), tabOverlayPane);
+        fadeIn.setToValue(1.0);
+        var scaleIn = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(250), grid);
+        scaleIn.setToX(1.0); scaleIn.setToY(1.0);
+        scaleIn.setInterpolator(javafx.animation.Interpolator.EASE_OUT);
+        var par = new javafx.animation.ParallelTransition(fadeIn, scaleIn);
+        par.setOnFinished(_ -> tabOverviewAnimating = false);
+        par.play();
+    }
+
+    static void animateOverviewOut(BorderPane root) {
+        if (tabOverlayPane == null || tabOverviewAnimating) return;
+        tabOverviewAnimating = true;
+        var content = tabOverlayPane.getChildren().isEmpty() ? tabOverlayPane : tabOverlayPane.getChildren().getFirst();
+        var grid = (content instanceof javafx.scene.control.ScrollPane sp) ? sp.getContent() : content;
+        var fadeOut = new javafx.animation.FadeTransition(javafx.util.Duration.millis(150), tabOverlayPane);
+        fadeOut.setToValue(0);
+        var scaleOut = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(200), grid);
+        scaleOut.setToX(1.3); scaleOut.setToY(1.3);
+        scaleOut.setInterpolator(javafx.animation.Interpolator.EASE_IN);
+        var par = new javafx.animation.ParallelTransition(fadeOut, scaleOut);
+        par.setOnFinished(_ -> {
+            root.getChildren().remove(tabOverlayPane);
+            tabOverlayPane = null;
+            tabOverviewAnimating = false;
+        });
+        par.play();
     }
 
     // --- Help ---
