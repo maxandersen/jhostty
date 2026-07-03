@@ -165,6 +165,8 @@ class SplitWorkspace extends Region {
     private Rectangle dropHighlight;
     private SplitWorkspace dragTargetWorkspace; // workspace receiving the drop (may differ from this)
     private final Map<PaneId, Region> paneHeaders = new HashMap<>();
+    private final Map<PaneId, javafx.scene.control.Label> shortcutLabels = new HashMap<>();
+    private static final String SHORTCUT_SYMBOL = System.getProperty("os.name", "").toLowerCase().contains("mac") ? "\u2318" : "^";
 
     // Zoom state
     private boolean zoomed = false;
@@ -418,7 +420,7 @@ class SplitWorkspace extends Region {
             root = null;
             var wrapper = paneWrappers.remove(target.id());
             if (wrapper != null) contentLayer.getChildren().remove(wrapper);
-            paneHeaders.remove(target.id());
+            paneHeaders.remove(target.id()); shortcutLabels.remove(target.id());
             var ring = focusRings.remove(target.id());
             if (ring != null) overlayLayer.getChildren().remove(ring);
             var pastel = pastelOverlays.remove(target.id());
@@ -458,7 +460,7 @@ class SplitWorkspace extends Region {
         // Remove content and overlays from scene
         var wrapper = paneWrappers.remove(target.id());
         if (wrapper != null) contentLayer.getChildren().remove(wrapper);
-        paneHeaders.remove(target.id());
+        paneHeaders.remove(target.id()); shortcutLabels.remove(target.id());
         var ring = focusRings.remove(target.id());
         if (ring != null) overlayLayer.getChildren().remove(ring);
         var pastel = pastelOverlays.remove(target.id());
@@ -629,7 +631,31 @@ class SplitWorkspace extends Region {
         rebuildLayout();
         syncContentNodes();
         updatePastelOverlays();
+        updateShortcutLabels();
         applyRects(currentRects);
+    }
+
+    private void updateShortcutLabels() {
+        var leaves = allLeaves();
+        for (int i = 0; i < leaves.size(); i++) {
+            var label = shortcutLabels.get(leaves.get(i).id());
+            if (label != null) {
+                if (i < 9) {
+                    label.setText(SHORTCUT_SYMBOL + (i + 1));
+                } else {
+                    label.setText("");
+                }
+            }
+        }
+    }
+
+    /** Focus the pane at the given 0-based index (for keyboard shortcuts). */
+    public void focusPaneByIndex(int index) {
+        var leaves = allLeaves();
+        if (index >= 0 && index < leaves.size()) {
+            focusedPane.set(leaves.get(index));
+            if (leaves.get(index).content() != null) leaves.get(index).content().requestFocus();
+        }
     }
 
     private void syncContentNodes() {
@@ -651,12 +677,16 @@ class SplitWorkspace extends Region {
                 } else {
                     titleLabel.setText(leaf.title());
                 }
+                var shortcutLabel = new javafx.scene.control.Label();
+                shortcutLabel.setStyle("-fx-text-fill: rgba(255,255,255,0.25); -fx-font-size: 10;");
+                shortcutLabel.setMouseTransparent(true);
+                shortcutLabels.put(leaf.id(), shortcutLabel);
                 var grip = new javafx.scene.control.Label("\u2261"); // ≡
                 grip.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 13;");
                 grip.setMouseTransparent(true);
                 var headerSpacer = new Region();
                 HBox.setHgrow(headerSpacer, Priority.ALWAYS);
-                var header = new HBox(4, titleLabel, headerSpacer, grip);
+                var header = new HBox(4, titleLabel, headerSpacer, shortcutLabel, grip);
                 header.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
                 header.setPadding(new Insets(0, 6, 0, 6));
                 header.setPrefHeight(HEADER_H);
@@ -730,6 +760,7 @@ class SplitWorkspace extends Region {
             var wrapper = paneWrappers.remove(id);
             if (wrapper != null) contentLayer.getChildren().remove(wrapper);
             paneHeaders.remove(id);
+            shortcutLabels.remove(id);
             var ring = focusRings.remove(id);
             if (ring != null) overlayLayer.getChildren().remove(ring);
             var pastel = pastelOverlays.remove(id);
@@ -1195,7 +1226,7 @@ class SplitWorkspace extends Region {
         // Remove from source workspace's scene graph
         var wrapper = paneWrappers.remove(source.id());
         if (wrapper != null) contentLayer.getChildren().remove(wrapper);
-        paneHeaders.remove(source.id());
+        paneHeaders.remove(source.id()); shortcutLabels.remove(source.id());
         var ring = focusRings.remove(source.id());
         if (ring != null) overlayLayer.getChildren().remove(ring);
         var pastel = pastelOverlays.remove(source.id());

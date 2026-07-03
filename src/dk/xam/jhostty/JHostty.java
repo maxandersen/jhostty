@@ -1674,6 +1674,16 @@ public class JHostty extends Application {
                 case EQUALS, PLUS, ADD -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); e.consume(); }
                 case MINUS, SUBTRACT -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); e.consume(); }
                 case DIGIT0, NUMPAD0 -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); e.consume(); }
+                case DIGIT1, DIGIT2, DIGIT3, DIGIT4, DIGIT5, DIGIT6, DIGIT7, DIGIT8, DIGIT9 -> {
+                    if (!e.isShiftDown()) {
+                        var ws = activeWorkspace();
+                        if (ws != null) {
+                            int idx = e.getCode().ordinal() - KeyCode.DIGIT1.ordinal();
+                            ws.focusPaneByIndex(idx);
+                            e.consume();
+                        }
+                    }
+                }
                 case ENTER -> { if (e.isShiftDown()) { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); e.consume(); } }
                 case COMMA -> {
                     var bp = (BorderPane) tabs.getScene().getRoot();
