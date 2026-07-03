@@ -504,17 +504,14 @@ public class JHostty extends Application {
                 pane.getChildren().add(addBtn);
                 tab.getProperties().put("jhostty.addBtn", addBtn);
 
-                // Tab tear-off: drag outside tab bar shows ghost, release creates window
+                // Tab drag: reorder within bar, tear-off outside, drop on other window
                 final double[] dragOrigin = new double[2];
                 final boolean[] tabDragging = {false};
-                final boolean[] tabReordering = {false};
-
 
                 tabHeader.setOnMousePressed(e -> {
                     dragOrigin[0] = e.getScreenX();
                     dragOrigin[1] = e.getScreenY();
                     tabDragging[0] = false;
-                    tabReordering[0] = false;
                     tabDragActive = true;
                     var ws = activeWorkspace();
                     if (ws != null) ws.hidePaneNumbers();
@@ -529,7 +526,6 @@ public class JHostty extends Application {
                                    || localPt.getY() < -30;
                     if (outside && !tabDragging[0]) {
                         tabDragging[0] = true;
-                        // Show ghost window
                         var ghost = new javafx.stage.Stage();
                         ghost.initStyle(javafx.stage.StageStyle.TRANSPARENT);
                         ghost.initOwner(findStage(tabPane));
@@ -559,45 +555,35 @@ public class JHostty extends Application {
                         tabDragging[0] = false;
                         if (activeTabDragGhost != null) { activeTabDragGhost.close(); activeTabDragGhost = null; }
                     }
-                    // Reorder within tab bar when dragging horizontally
-                    if (!outside && !tabDragging[0]) {
-                        double dx = e.getScreenX() - dragOrigin[0];
-                        if (Math.abs(dx) > 20) { // threshold to start reorder
-                            tabReordering[0] = true;
-                        }
-                        if (tabReordering[0]) {
-                            var tabIdx2 = tabPane.getTabs().indexOf(tab);
-                            // Find which tab position the cursor is over
-                            var allHeaders2 = tabPane.lookupAll(".tab");
-                            int targetIdx = -1;
-                            int hi = 0;
-                            for (var th : allHeaders2) {
-                                var bounds = th.localToScreen(th.getBoundsInLocal());
-                                if (bounds != null && e.getScreenX() >= bounds.getMinX() && e.getScreenX() <= bounds.getMaxX()) {
-                                    targetIdx = hi;
-                                    break;
-                                }
-                                hi++;
-                            }
-                            if (targetIdx >= 0 && targetIdx != tabIdx2) {
-                                tabPane.getTabs().remove(tabIdx2);
-                                tabPane.getTabs().add(targetIdx, tab);
-                                tabPane.getSelectionModel().select(tab);
-                            }
-                        }
-                    }
                 });
                 tabHeader.setOnMouseReleased(e -> {
-                    tabReordering[0] = false;
                     tabDragActive = false;
                     if (tabDragging[0] && activeTabDragGhost != null) {
                         activeTabDragGhost.close(); activeTabDragGhost = null;
-                        // Check if over another window's tab bar
                         var targetTabs = findTabPaneAtScreen(e.getScreenX(), e.getScreenY(), tabPane);
                         if (targetTabs != null) {
                             moveTabTo(tab, tabPane, targetTabs, e.getScreenX());
                         } else {
                             tearOffTab(tab, tabPane, e.getScreenX(), e.getScreenY());
+                        }
+                    } else if (!tabDragging[0] && tabPane.getTabs().size() > 1) {
+                        // Reorder: commit on release based on final cursor position
+                        var tabIdx2 = tabPane.getTabs().indexOf(tab);
+                        var allHeaders2 = tabPane.lookupAll(".tab");
+                        int targetIdx = tabIdx2;
+                        int hi = 0;
+                        for (var th : allHeaders2) {
+                            var bounds = th.localToScreen(th.getBoundsInLocal());
+                            if (bounds != null && e.getScreenX() >= bounds.getMinX() && e.getScreenX() <= bounds.getMaxX()) {
+                                targetIdx = hi;
+                                break;
+                            }
+                            hi++;
+                        }
+                        if (targetIdx != tabIdx2) {
+                            tabPane.getTabs().remove(tabIdx2);
+                            tabPane.getTabs().add(targetIdx, tab);
+                            tabPane.getSelectionModel().select(tab);
                         }
                     }
                     tabDragging[0] = false;
