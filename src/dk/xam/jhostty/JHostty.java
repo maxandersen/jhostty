@@ -131,6 +131,8 @@ public class JHostty extends Application {
     // --- Entry point ---
 
     public static void run(String[] args) {
+        // Suppress noisy JavaFX VirtualFlow log
+        java.util.logging.Logger.getLogger("javafx.scene.control.skin.VirtualFlow").setLevel(java.util.logging.Level.WARNING);
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             System.err.println("Uncaught exception in thread \"" + t.getName() + "\"");
             e.printStackTrace();
