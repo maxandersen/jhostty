@@ -1145,6 +1145,7 @@ class SplitWorkspace extends Region {
         }
 
         // Perform drop
+        System.err.println("[SplitWorkspace] endPaneDrag: dragging=" + dragging + " dropTarget=" + dropTarget + " dropZone=" + dropZone + " source=" + dragSource.id());
         if (dragging && dropTarget != null && dropZone != null) {
             var destWs = dragTargetWorkspace != null ? dragTargetWorkspace : this;
             if (destWs == this) {
