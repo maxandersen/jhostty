@@ -1506,6 +1506,13 @@ public class JHostty extends Application {
                     tabs.getTabs().remove(newTabBtn);
                     tabs.getTabs().add(newTabBtn);
                 });
+            } else if (selected != null && selected.getContent() instanceof SplitWorkspace ws) {
+                // Update activeTerminal when switching tabs
+                var focused = ws.focusedPaneProperty().get();
+                if (focused != null && focused.content() instanceof TerminalView tv) {
+                    activeTerminal = tv;
+                    Platform.runLater(tv::requestFocus);
+                }
             }
         });
 
