@@ -35,7 +35,7 @@ import javafx.scene.input.KeyEvent;
 import javafx.scene.input.ScrollEvent;
 import javafx.scene.input.TransferMode;
 import javafx.scene.input.ZoomEvent;
-import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 
@@ -67,6 +67,7 @@ public class JHostty extends Application {
     static Path cssPath;
     static String cssUrl;
     static boolean debug;
+    static boolean demoMode;
     static final List<Stage> windows = new ArrayList<>();
     static final List<Menu> windowMenus = new ArrayList<>();
     static boolean sidebarVisible = false;
@@ -123,6 +124,7 @@ public class JHostty extends Application {
             e.printStackTrace();
         });
         debug = List.of(args).contains("--debug");
+        demoMode = List.of(args).contains("--demo");
         Runtime.getRuntime().addShutdownHook(new Thread(JHostty::saveState, "jhostty-shutdown"));
         Application.launch(JHostty.class, args);
     }
@@ -159,7 +161,8 @@ public class JHostty extends Application {
 
         Platform.setImplicitExit(false);
         initZmx();
-        restoreLayout();
+        if (demoMode) { newDemoWindow(); }
+        else { restoreLayout(); }
         if (IS_MAC) {
             Platform.runLater(() -> MacUtils.setAppName("jhostty"));
         }
@@ -186,6 +189,18 @@ public class JHostty extends Application {
         if (tabs == null) return null;
         newTab(tabs);
         return stage;
+    }
+
+    static void newDemoWindow() {
+        var demo = SplitWorkspace.createDemo();
+        demo.setStyle("-fx-background-color: #FAFAFA;");
+        var scene = new Scene(demo, 1000, 700);
+        var stage = new Stage();
+        stage.setTitle("SplitWorkspace Demo");
+        stage.setScene(scene);
+        stage.setOnHidden(_ -> { windows.remove(stage); if (windows.isEmpty()) Platform.exit(); });
+        windows.add(stage);
+        stage.show();
     }
 
     // --- Menu Bar ---
@@ -321,15 +336,52 @@ public class JHostty extends Application {
     // --- Tab Management ---
 
     static void newTab(TabPane tabPane) {
-        var view = createTerminal();
-        if (view == null) return;
+        var workspace = SplitWorkspace.createSingle(() -> createTerminal());
+        workspace.setContentFactory(() -> createTerminal());
+        workspace.setPaneBackground(currentTheme.background());
+        workspace.setFocusRingColor(focusRingColor(currentTheme));
+        workspace.setPastelOpacity(pastelOpacity(currentTheme));
+        // Close tab/window when last pane is dragged out
+        workspace.setOnEmpty(() -> Platform.runLater(() -> {
+            var tp = findTabPane(workspace);
+            var stg = tp != null ? findStage(tp) : null;
+            var t = findTab(workspace);
+            if (t != null && tp != null) tabPane.getTabs().remove(t);
+            if (tp != null && tp.getTabs().stream().noneMatch(tab -> tab.getContent() != null) && stg != null) stg.close();
+        }));
+        // Track active terminal from workspace focus
+        workspace.focusedPaneProperty().addListener((_, _, pane) -> {
+            if (pane != null && pane.content() instanceof TerminalView tv) {
+                activeTerminal = tv;
+                var stg = findStageFor(tv);
+                if (stg != null) { stg.setTitle(tv.getTitle() != null ? tv.getTitle() : "jhostty"); rebuildWindowMenus(); }
+                rebuildAllSidebars();
+            }
+        });
         var tab = new Tab();
-        bindTabTitle(tab, view);
-        tab.setContent(view);
+        tab.setText("jhostty");
+        tab.setContent(workspace);
         tab.setClosable(true);
-        tab.setOnClosed(_ -> closeTerminalsIn(view));
-        tabPane.getTabs().add(tab);
+        tab.setOnClosed(_ -> closeTerminalsIn(workspace));
+
+        // Insert before the "+" tab if present
+        var plusIdx = -1;
+        for (int i = 0; i < tabPane.getTabs().size(); i++) {
+            if (tabPane.getTabs().get(i).getContent() == null && "+".equals(tabPane.getTabs().get(i).getText())) {
+                plusIdx = i;
+                break;
+            }
+        }
+        if (plusIdx >= 0) tabPane.getTabs().add(plusIdx, tab);
+        else tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
+
+        // Update tab title when workspace focus changes
+        workspace.focusedPaneProperty().addListener((_, _, pane) -> {
+            if (pane != null && pane.content() instanceof TerminalView tv) {
+                tab.textProperty().bind(tv.titleProperty());
+            }
+        });
         Platform.runLater(JHostty::saveState);
     }
 
@@ -370,7 +422,9 @@ public class JHostty extends Application {
     }
 
     static void updateTabBarVisibility(TabPane tp) {
-        var hide = tp.getTabs().size() <= 1;
+        // Count real tabs (not the "+" button)
+        var realCount = tp.getTabs().stream().filter(t -> t.getContent() != null).count();
+        var hide = realCount <= 1;
         if (hide) { if (!tp.getStyleClass().contains("single-tab")) tp.getStyleClass().add("single-tab"); }
         else tp.getStyleClass().remove("single-tab");
     }
@@ -458,6 +512,7 @@ public class JHostty extends Application {
             var windowNode = new TreeItem<SidebarItem>(new SidebarItem.WindowItem(w, wi));
             windowNode.setExpanded(true);
             for (var tab : tp.getTabs()) {
+                if (tab.getContent() == null) continue; // skip "+" tab
                 var tabTitle = tab.getText() != null ? tab.getText() : "Terminal";
                 var tabNode = new TreeItem<SidebarItem>(new SidebarItem.TabItem(tab, tabTitle));
                 tabNode.setExpanded(true);
@@ -488,99 +543,131 @@ public class JHostty extends Application {
 
     static void focusFirstTerminal(Node node) {
         if (node instanceof TerminalView v) v.requestFocus();
-        else if (node instanceof SplitPane sp && !sp.getItems().isEmpty()) focusFirstTerminal(sp.getItems().getFirst());
+        else if (node instanceof SplitWorkspace ws) {
+            var leaves = ws.allLeaves();
+            if (!leaves.isEmpty() && leaves.getFirst().content() instanceof TerminalView tv) tv.requestFocus();
+        }
     }
 
     static void addTerminalNodes(TreeItem<SidebarItem> parent, Node node) {
         if (node instanceof TerminalView v) {
             parent.getChildren().add(new TreeItem<>(new SidebarItem.TerminalItem(v, v.getTitle(), getTerminalCommand(v))));
-        } else if (node instanceof SplitPane sp) {
-            for (var item : sp.getItems()) addTerminalNodes(parent, item);
+        } else if (node instanceof SplitWorkspace ws) {
+            for (var leaf : ws.allLeaves()) {
+                if (leaf.content() instanceof TerminalView v) {
+                    parent.getChildren().add(new TreeItem<>(new SidebarItem.TerminalItem(v, v.getTitle(), getTerminalCommand(v))));
+                }
+            }
         }
     }
 
-    // --- Split Management ---
+    // --- SplitWorkspace helpers ---
+
+    static SplitWorkspace findWorkspace(Node node) {
+        var p = node;
+        while (p != null) {
+            if (p instanceof SplitWorkspace ws) return ws;
+            p = p.getParent();
+        }
+        // Fallback: find workspace in active window tab
+        for (var w : windows) {
+            var tp = getTabPane(w);
+            if (tp != null) {
+                var tab = tp.getSelectionModel().getSelectedItem();
+                if (tab != null && tab.getContent() instanceof SplitWorkspace ws) return ws;
+            }
+        }
+        return null;
+    }
+
+    static SplitWorkspace activeWorkspace() {
+        if (activeTerminal != null) {
+            var ws = findWorkspace(activeTerminal);
+            if (ws != null) return ws;
+        }
+        for (var w : windows) {
+            var tp = getTabPane(w);
+            if (tp != null) {
+                var tab = tp.getSelectionModel().getSelectedItem();
+                if (tab != null && tab.getContent() instanceof SplitWorkspace ws) return ws;
+            }
+        }
+        return null;
+    }
+
+    static void forEachWorkspace(TabPane tabs, java.util.function.Consumer<SplitWorkspace> action) {
+        for (var tab : tabs.getTabs()) {
+            if (tab.getContent() instanceof SplitWorkspace ws) action.accept(ws);
+        }
+    }
+
+    // --- Split Management (via SplitWorkspace) ---
 
     static void splitActive(Orientation orientation) {
-        if (activeTerminal != null) split(activeTerminal, orientation);
+        var ws = activeWorkspace();
+        if (ws == null) return;
+        var side = (orientation == Orientation.VERTICAL)
+            ? javafx.geometry.Side.RIGHT : javafx.geometry.Side.BOTTOM;
+        ws.splitFocused(side);
     }
 
     static void split(TerminalView existing, Orientation orientation) {
-        var newView = createTerminal();
-        if (newView == null) return;
-        var sp = findParentSplitPane(existing);
-        if (sp != null) {
-            var items = sp.getItems();
-            int idx = items.indexOf(existing);
-            if (idx >= 0) {
-                if (sp.getOrientation() == orientation) {
-                    items.add(idx + 1, newView);
-                    evenDividers(sp);
-                } else {
-                    var nested = new SplitPane(existing, newView);
-                    nested.setOrientation(orientation);
-                    items.set(idx, nested);
-                    evenDividers(sp);
-                }
-            }
-        } else {
-            var tab = findTab(existing);
-            if (tab != null) {
-                var newSp = new SplitPane(existing, newView);
-                newSp.setOrientation(orientation);
-                tab.setContent(newSp);
-            }
+        var ws = findWorkspace(existing);
+        if (ws == null) return;
+        var leaf = ws.findLeafByContent(existing);
+        if (leaf != null) {
+            ws.focusPane(leaf);
+            var side = (orientation == Orientation.VERTICAL)
+                ? javafx.geometry.Side.RIGHT : javafx.geometry.Side.BOTTOM;
+            ws.splitFocused(side);
         }
-        Platform.runLater(newView::requestFocus);
-    }
-
-    static void evenDividers(SplitPane sp) {
-        int n = sp.getItems().size();
-        if (n <= 1) return;
-        double[] positions = new double[n - 1];
-        for (int i = 0; i < positions.length; i++) positions[i] = (i + 1.0) / n;
-        Platform.runLater(() -> sp.setDividerPositions(positions));
     }
 
     // --- Close Management ---
 
     static void closeActive(TabPane tabPane, Stage stage) {
-        if (activeTerminal != null) removeTerminal(activeTerminal, tabPane, stage);
+        var ws = activeWorkspace();
+        if (ws == null || activeTerminal == null) return;
+        var leaf = ws.findLeafByContent(activeTerminal);
+        if (leaf != null) {
+            var content = leaf.content();
+            if (content instanceof TerminalView tv) {
+                if (!closingTerminals.add(tv)) return;
+                Thread.ofVirtual().name("jhostty-close").start(tv::close);
+            }
+            ws.closePane(leaf);
+            if (ws.allLeaves().isEmpty()) {
+                if (tabPane == null) tabPane = findTabPane(ws);
+                if (stage == null && tabPane != null) stage = findStage(tabPane);
+                var tab = findTab(ws);
+                if (tab != null && tabPane != null) tabPane.getTabs().remove(tab);
+                if (tabPane != null && tabPane.getTabs().stream().noneMatch(t -> t.getContent() != null) && stage != null) stage.close();
+            }
+        }
     }
 
     static void removeTerminal(TerminalView view, TabPane tabPane, Stage stage) {
         if (!closingTerminals.add(view)) return;
         Thread.ofVirtual().name("jhostty-close").start(view::close);
-        if (tabPane == null) tabPane = findTabPane(view);
-        if (stage == null && tabPane != null) stage = findStage(tabPane);
-        var sp = findParentSplitPane(view);
-        if (sp != null) {
-            sp.getItems().remove(view);
-            if (sp.getItems().size() == 1) {
-                var remaining = sp.getItems().getFirst();
-                sp.getItems().clear();
-                var gsp = findParentSplitPane(sp);
-                if (gsp != null) {
-                    int idx = gsp.getItems().indexOf(sp);
-                    if (idx >= 0) gsp.getItems().set(idx, remaining);
-                    evenDividers(gsp);
-                } else {
-                    var tab = findTab(sp);
-                    if (tab != null) tab.setContent(remaining);
-                }
-                if (remaining instanceof TerminalView tv) tv.requestFocus();
-            } else if (sp.getItems().isEmpty()) {
-                var tab = findTab(sp);
+
+        var ws = findWorkspace(view);
+        if (ws != null) {
+            var leaf = ws.findLeafByContent(view);
+            if (leaf != null) ws.closePane(leaf);
+            if (ws.allLeaves().isEmpty()) {
+                if (tabPane == null) tabPane = findTabPane(ws);
+                if (stage == null && tabPane != null) stage = findStage(tabPane);
+                var tab = findTab(ws);
                 if (tab != null && tabPane != null) tabPane.getTabs().remove(tab);
-            } else {
-                evenDividers(sp);
-                if (sp.getItems().getFirst() instanceof TerminalView tv) tv.requestFocus();
+                if (tabPane != null && tabPane.getTabs().stream().noneMatch(t -> t.getContent() != null) && stage != null) stage.close();
             }
         } else {
             var tab = findTab(view);
+            if (tabPane == null) tabPane = findTabPane(view);
+            if (stage == null && tabPane != null) stage = findStage(tabPane);
             if (tab != null && tabPane != null) tabPane.getTabs().remove(tab);
+            if (tabPane != null && tabPane.getTabs().stream().noneMatch(t -> t.getContent() != null) && stage != null) stage.close();
         }
-        if (tabPane != null && tabPane.getTabs().isEmpty() && stage != null) stage.close();
     }
 
     static Tab findTab(Node node) {
@@ -595,9 +682,9 @@ public class JHostty extends Application {
 
     static boolean containsNode(Node container, Node target) {
         if (container == target) return true;
-        if (container instanceof SplitPane sp) {
-            for (var item : sp.getItems()) {
-                if (containsNode(item, target)) return true;
+        if (container instanceof SplitWorkspace ws) {
+            for (var leaf : ws.allLeaves()) {
+                if (leaf.content() == target) return true;
             }
         }
         return false;
@@ -750,11 +837,50 @@ public class JHostty extends Application {
 
     static void applyThemeToAll() {
         forEachTerminal(v -> v.setTheme(currentTheme));
-        writeCss();
+        // Update workspace pane backgrounds to match theme
         for (var w : windows) {
+            var tp = getTabPane(w);
+            if (tp != null) {
+                for (var tab : tp.getTabs()) {
+                    if (tab.getContent() instanceof SplitWorkspace ws) {
+                        ws.setPaneBackground(currentTheme.background());
+                        ws.setFocusRingColor(focusRingColor(currentTheme));
+                        ws.setPastelOpacity(pastelOpacity(currentTheme));
+                    }
+                }
+            }
+        }
+        writeCss();
+        var divColor = dividerColor(currentTheme.background());
+        for (var w : windows) {
+            w.getScene().setFill(divColor);
+            if (w.getScene().getRoot() instanceof BorderPane bp) {
+                bp.setStyle("-fx-background-color: " + colorToCss(divColor) + ";");
+            }
             var sheets = w.getScene().getStylesheets();
             if (sheets.contains(cssUrl)) { sheets.remove(cssUrl); sheets.add(cssUrl); }
         }
+    }
+
+    /** Pastel overlay opacity — subtle in dark themes, more visible in light. */
+    static double pastelOpacity(TerminalTheme theme) {
+        var bg = theme.background();
+        var lum = bg.getRed() * 0.299 + bg.getGreen() * 0.587 + bg.getBlue() * 0.114;
+        return lum < 0.5 ? 0.15 : 0.25;
+    }
+
+    /** Focus ring color derived from theme. */
+    static Color focusRingColor(TerminalTheme theme) {
+        var bg = theme.background();
+        var lum = bg.getRed() * 0.299 + bg.getGreen() * 0.587 + bg.getBlue() * 0.114;
+        var fg = theme.foreground();
+        return fg.deriveColor(0, 1, 1, lum < 0.5 ? 0.4 : 0.65);
+    }
+
+    /** Divider/gutter color — slightly offset from terminal bg. */
+    static Color dividerColor(Color bg) {
+        var lum = bg.getRed() * 0.299 + bg.getGreen() * 0.587 + bg.getBlue() * 0.114;
+        return lum < 0.5 ? Color.web("#555555") : Color.web("#bbbbbb");
     }
 
     static String colorToCss(Color c) {
@@ -779,9 +905,24 @@ public class JHostty extends Application {
                 (int)(selBg.getRed()*255), (int)(selBg.getGreen()*255), (int)(selBg.getBlue()*255));
         var selText = dark ? "white" : "black";
         var dividerCss = dark ? "#555555" : "#bbbbbb";
+        var tabBarBg = dark ? "rgba(20,20,20,0.95)" : "rgba(230,230,230,0.95)";
+        var tabSelectedBg = dark ? "rgba(60,60,60,0.9)" : "rgba(255,255,255,0.9)";
+        var tabTextCss = dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)";
+        var tabSelectedTextCss = dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.85)";
+        var tabCloseCss = dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)";
+        var tabCloseHoverCss = dark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.7)";
         try {
             Files.writeString(cssPath, """
                     .single-tab > .tab-header-area { -fx-max-height: 0; -fx-pref-height: 0; -fx-min-height: 0; visibility: hidden; }
+                    .tab-pane > .tab-header-area { -fx-background-color: %s; -fx-padding: 0; }
+                    .tab-pane > .tab-header-area > .headers-region { -fx-background-color: transparent; }
+                    .tab-pane > .tab-header-area > .tab-header-background { -fx-background-color: %s; }
+                    .tab-pane .tab { -fx-background-color: transparent; -fx-background-radius: 6 6 0 0; -fx-background-insets: 2 1 0 1; -fx-padding: 4 12 4 12; -fx-border-color: transparent; }
+                    .tab-pane .tab:selected { -fx-background-color: %s; }
+                    .tab-pane .tab .tab-label { -fx-text-fill: %s; -fx-font-size: 11; }
+                    .tab-pane .tab:selected .tab-label { -fx-text-fill: %s; }
+                    .tab-pane .tab .tab-close-button { -fx-background-color: %s; -fx-shape: "M 0,0 L 4,4 M 4,0 L 0,4"; -fx-padding: 0 4 0 4; }
+                    .tab-pane .tab:hover .tab-close-button { -fx-background-color: %s; }
                     .split-pane > .split-pane-divider { -fx-background-color: %s; -fx-padding: 1; }
                     .context-menu { -fx-background-color: %s; -fx-background-radius: 8; -fx-border-radius: 8; -fx-border-color: %s; -fx-border-width: 0.5; -fx-padding: 4 0 4 0; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 12, 0, 0, 4); }
                     .context-menu .menu-item { -fx-padding: 4 16 4 16; }
@@ -796,8 +937,11 @@ public class JHostty extends Application {
                     .jhostty-sidebar .tree-cell:selected { -fx-background-color: %s; -fx-text-fill: %s; }
                     .jhostty-sidebar .tree-cell:empty { -fx-background-color: transparent; }
                     .jhostty-sidebar .tree-disclosure-node .arrow { -fx-background-color: %s; }
-                    """.formatted(dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss,
-                            borderCss, menuBgCss, fgCss, selCss, selText, fgCss));
+                    """.formatted(
+                        tabBarBg, tabBarBg, tabSelectedBg, tabTextCss, tabSelectedTextCss,
+                        tabCloseCss, tabCloseHoverCss,
+                        dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss,
+                        borderCss, menuBgCss, fgCss, selCss, selText, fgCss));
         } catch (IOException _) {}
     }
 
@@ -808,39 +952,31 @@ public class JHostty extends Application {
         }
     }
 
-    static SplitPane findParentSplitPane(Node node) {
-        var p = node.getParent();
-        while (p != null) {
-            if (p instanceof SplitPane sp && sp.getItems().contains(node) && !sp.getStyleClass().contains("jhostty-content-split")) return sp;
-            if (p.getParent() instanceof SplitPane sp && sp.getItems().contains(node) && !sp.getStyleClass().contains("jhostty-content-split")) return sp;
-            node = p;
-            p = p.getParent();
-        }
-        return null;
-    }
-
     static TerminalView terminalAt(TabPane tabPane, double screenX, double screenY) {
         for (var tab : tabPane.getTabs()) {
-            var hit = terminalAtIn(tab.getContent(), screenX, screenY);
-            if (hit != null) return hit;
-        }
-        return null;
-    }
-
-    static TerminalView terminalAtIn(Node node, double screenX, double screenY) {
-        if (node instanceof TerminalView v) {
-            var bounds = v.localToScreen(v.getBoundsInLocal());
-            return bounds != null && bounds.contains(screenX, screenY) ? v : null;
-        }
-        if (node instanceof SplitPane sp) {
-            for (var item : sp.getItems()) { var hit = terminalAtIn(item, screenX, screenY); if (hit != null) return hit; }
+            var content = tab.getContent();
+            if (content instanceof SplitWorkspace ws) {
+                for (var leaf : ws.allLeaves()) {
+                    if (leaf.content() instanceof TerminalView v) {
+                        var bounds = v.localToScreen(v.getBoundsInLocal());
+                        if (bounds != null && bounds.contains(screenX, screenY)) return v;
+                    }
+                }
+            } else if (content instanceof TerminalView v) {
+                var bounds = v.localToScreen(v.getBoundsInLocal());
+                if (bounds != null && bounds.contains(screenX, screenY)) return v;
+            }
         }
         return null;
     }
 
     static void forEachTerminalIn(Node node, java.util.function.Consumer<TerminalView> action) {
         if (node instanceof TerminalView v) action.accept(v);
-        else if (node instanceof SplitPane sp) sp.getItems().forEach(n -> forEachTerminalIn(n, action));
+        else if (node instanceof SplitWorkspace ws) {
+            for (var leaf : ws.allLeaves()) {
+                if (leaf.content() instanceof TerminalView v) action.accept(v);
+            }
+        }
     }
 
     static void closeAllTerminalsIn(TabPane tp) {
@@ -855,6 +991,206 @@ public class JHostty extends Application {
         if (!path.contains(" ") && !path.contains("'") && !path.contains("\"")) return path;
         if (IS_WINDOWS) return "\"" + path.replace("\"", "\\\"") + "\"";
         return "'" + path.replace("'", "'\\''") + "'";
+    }
+
+    // --- Workspace Toolbar ---
+
+    static HBox createWorkspaceToolbar(TabPane tabs) {
+        var btnLeft   = toolBtn("\u21E4", "Split Left",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.LEFT); });
+        var btnRight  = toolBtn("\u21E5", "Split Right", () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.RIGHT); });
+        var btnUp     = toolBtn("\u2912", "Split Up",    () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.TOP); });
+        var btnDown   = toolBtn("\u2913", "Split Down",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.BOTTOM); });
+        var btnClose  = toolBtn("\u2715", "Close Pane",  () -> { var ws = activeWorkspace(); if (ws != null) ws.closeFocused(); });
+        var btnZoom   = toolBtn("\u2922", "Zoom Toggle", () -> { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); });
+        var btnReset  = toolBtn("\u21BA", "Reset Layout", () -> {
+            // Close all but one terminal, reset to single pane
+            var ws = activeWorkspace();
+            if (ws != null) {
+                var leaves = new java.util.ArrayList<>(ws.allLeaves());
+                if (leaves.size() > 1) {
+                    for (int i = 1; i < leaves.size(); i++) {
+                        var leaf = leaves.get(i);
+                        if (leaf.content() instanceof TerminalView tv) {
+                            if (closingTerminals.add(tv))
+                                Thread.ofVirtual().name("jhostty-close").start(tv::close);
+                        }
+                        ws.closePane(leaf);
+                    }
+                }
+            }
+        });
+        var btnNewWin = toolBtn("\u2398", "New Window",  () -> newWindow());
+
+        var spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        var toolbar = new HBox(2,
+            spacer, btnLeft, btnRight, btnUp, btnDown,
+            toolSep(), btnClose, btnZoom,
+            toolSep(), btnReset, btnNewWin
+        );
+        toolbar.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
+        toolbar.setPadding(new javafx.geometry.Insets(2, 8, 2, 8));
+        toolbar.setStyle("-fx-background-color: transparent;");
+        return toolbar;
+    }
+
+    static Button toolBtn(String glyph, String tooltip, Runnable action) {
+        var btn = new Button(glyph);
+        btn.setStyle("-fx-background-color: transparent; -fx-text-fill: #999; -fx-font-size: 14; -fx-padding: 2 6; -fx-cursor: hand;");
+        btn.setTooltip(new Tooltip(tooltip));
+        btn.setFocusTraversable(false);
+        btn.setOnAction(_ -> action.run());
+        btn.setOnMouseEntered(_ -> btn.setStyle("-fx-background-color: rgba(255,255,255,0.1); -fx-background-radius: 4; -fx-text-fill: #ddd; -fx-font-size: 14; -fx-padding: 2 6; -fx-cursor: hand;"));
+        btn.setOnMouseExited(_ -> btn.setStyle("-fx-background-color: transparent; -fx-text-fill: #999; -fx-font-size: 14; -fx-padding: 2 6; -fx-cursor: hand;"));
+        return btn;
+    }
+
+    static Separator toolSep() {
+        var sep = new Separator(Orientation.VERTICAL);
+        sep.setPadding(new javafx.geometry.Insets(2, 2, 2, 2));
+        sep.setStyle("-fx-background-color: rgba(255,255,255,0.1);");
+        return sep;
+    }
+
+    // --- Settings Panel ---
+
+    static VBox createSettingsPanel(TabPane tabs) {
+        var title = new Label("Settings");
+        title.setStyle("-fx-font-size: 14; -fx-font-weight: bold; -fx-text-fill: white;");
+
+        var pastelLabel = new Label("Pastel Opacity");
+        pastelLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        var pastelSlider = safeSlider(0, 0.5, pastelOpacity(currentTheme));
+        pastelSlider.setPrefWidth(180);
+        var pastelValue = new Label(String.format("%.0f%%", pastelSlider.getValue() * 100));
+        pastelValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        pastelSlider.valueProperty().addListener((_, _, v) -> {
+            pastelValue.setText(String.format("%.0f%%", v.doubleValue() * 100));
+            forEachWorkspace(tabs, ws -> ws.setPastelOpacity(v.doubleValue()));
+        });
+        var pastelRow = new HBox(8, pastelSlider, pastelValue);
+        pastelRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        var gutterLabel = new Label("Gutter Width");
+        gutterLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        var gutterSlider = safeSlider(0, 20, SplitWorkspace.GUTTER);
+        gutterSlider.setPrefWidth(180);
+        var gutterValue = new Label(String.format("%.0fpx", gutterSlider.getValue()));
+        gutterValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        gutterSlider.valueProperty().addListener((_, _, v) -> {
+            gutterValue.setText(String.format("%.0fpx", v.doubleValue()));
+            forEachWorkspace(tabs, ws -> ws.setGutter(v.doubleValue()));
+        });
+        var gutterRow = new HBox(8, gutterSlider, gutterValue);
+        gutterRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        var radiusLabel = new Label("Corner Radius");
+        radiusLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        var radiusSlider = safeSlider(0, 20, SplitWorkspace.PANE_RADIUS);
+        radiusSlider.setPrefWidth(180);
+        var radiusValue = new Label(String.format("%.0fpx", radiusSlider.getValue()));
+        radiusValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        radiusSlider.valueProperty().addListener((_, _, v) -> {
+            radiusValue.setText(String.format("%.0fpx", v.doubleValue()));
+            forEachWorkspace(tabs, ws -> ws.setPaneRadius(v.doubleValue()));
+        });
+        var radiusRow = new HBox(8, radiusSlider, radiusValue);
+        radiusRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        var headerLabel = new Label("Header Height");
+        headerLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        var headerSlider = safeSlider(0, 40, SplitWorkspace.HEADER_H);
+        headerSlider.setPrefWidth(180);
+        var headerValue = new Label(String.format("%.0fpx", headerSlider.getValue()));
+        headerValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        headerSlider.valueProperty().addListener((_, _, v) -> {
+            headerValue.setText(String.format("%.0fpx", v.doubleValue()));
+            forEachWorkspace(tabs, ws -> ws.setHeaderHeight(v.doubleValue()));
+        });
+        var headerRow = new HBox(8, headerSlider, headerValue);
+        headerRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        var ringLabel = new Label("Focus Ring");
+        ringLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        var ringSlider = safeSlider(0, 5, SplitWorkspace.FOCUS_RING_WIDTH);
+        ringSlider.setPrefWidth(180);
+        var ringValue = new Label(String.format("%.1fpx", ringSlider.getValue()));
+        ringValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        ringSlider.valueProperty().addListener((_, _, v) -> {
+            ringValue.setText(String.format("%.1fpx", v.doubleValue()));
+            forEachWorkspace(tabs, ws -> ws.setFocusRingWidth(v.doubleValue()));
+        });
+        var ringRow = new HBox(8, ringSlider, ringValue);
+        ringRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        var animLabel = new Label("Animation Speed");
+        animLabel.setStyle("-fx-text-fill: #aaa; -fx-font-size: 11;");
+        var animSlider = safeSlider(50, 800, 300);
+        animSlider.setPrefWidth(180);
+        var animValue = new Label(String.format("%.0fms", animSlider.getValue()));
+        animValue.setStyle("-fx-text-fill: #888; -fx-font-size: 10;");
+        animSlider.valueProperty().addListener((_, _, v) -> {
+            animValue.setText(String.format("%.0fms", v.doubleValue()));
+            forEachWorkspace(tabs, ws -> ws.setAnimationDuration(v.doubleValue()));
+        });
+        var animRow = new HBox(8, animSlider, animValue);
+        animRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        var pastelCheck = new CheckBox("Pastel Tinting");
+        pastelCheck.setSelected(true);
+        pastelCheck.setStyle("-fx-text-fill: #ccc; -fx-font-size: 11;");
+        pastelCheck.selectedProperty().addListener((_, _, v) -> forEachWorkspace(tabs, ws -> ws.pastelTintingProperty().set(v)));
+
+        var animCheck = new CheckBox("Animations");
+        animCheck.setSelected(true);
+        animCheck.setStyle("-fx-text-fill: #ccc; -fx-font-size: 11;");
+        animCheck.selectedProperty().addListener((_, _, v) -> forEachWorkspace(tabs, ws -> ws.animationsEnabledProperty().set(v)));
+
+        var sep1 = new Separator();
+        sep1.setStyle("-fx-background-color: rgba(255,255,255,0.1);");
+        var sep2 = new Separator();
+        sep2.setStyle("-fx-background-color: rgba(255,255,255,0.1);");
+
+        var closeBtn = new Button("\u2715");
+        closeBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;");
+        closeBtn.setOnMouseEntered(_ -> closeBtn.setStyle("-fx-background-color: rgba(255,255,255,0.1); -fx-background-radius: 4; -fx-text-fill: #ccc; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;"));
+        closeBtn.setOnMouseExited(_ -> closeBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;"));
+        closeBtn.setFocusTraversable(false);
+
+        var titleRow = new HBox(title, new Region() {{ HBox.setHgrow(this, Priority.ALWAYS); }}, closeBtn);
+        titleRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        var panel = new VBox(10,
+            titleRow, sep1,
+            pastelLabel, pastelRow,
+            gutterLabel, gutterRow,
+            radiusLabel, radiusRow,
+            headerLabel, headerRow,
+            ringLabel, ringRow,
+            animLabel, animRow,
+            sep2, pastelCheck, animCheck
+        );
+        panel.setPadding(new javafx.geometry.Insets(12));
+        panel.setStyle("-fx-background-color: rgba(30,30,30,0.95); -fx-border-color: rgba(255,255,255,0.1); -fx-border-width: 0 0 0 1;");
+        panel.setPrefWidth(220);
+        panel.setMinWidth(220);
+        closeBtn.setOnAction(_ -> { panel.setVisible(false); panel.setManaged(false); });
+        return panel;
+    }
+
+    /** Slider workaround for JavaFX 26 SliderSkin NPE bug. */
+    static Slider safeSlider(double min, double max, double value) {
+        var slider = new Slider(min, max, value);
+        slider.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_DRAGGED, e -> {
+            var bounds = slider.localToScene(slider.getBoundsInLocal());
+            if (bounds == null) return;
+            double rel = (e.getSceneX() - bounds.getMinX()) / bounds.getWidth();
+            rel = Math.max(0, Math.min(1, rel));
+            slider.setValue(min + rel * (max - min));
+            e.consume();
+        });
+        return slider;
     }
 
     // --- Config ---
@@ -950,10 +1286,14 @@ public class JHostty extends Application {
             if (w.getScene() == null) { sb.append("1"); continue; }
             var tp = getTabPane(w);
             if (tp == null) { sb.append("1"); continue; }
-            for (int ti = 0; ti < tp.getTabs().size(); ti++) {
-                if (ti > 0) sb.append(',');
-                captureNode(sb, tp.getTabs().get(ti).getContent());
+            boolean first = true;
+            for (var tab : tp.getTabs()) {
+                if (tab.getContent() == null) continue; // skip "+" tab
+                if (!first) sb.append(',');
+                first = false;
+                captureNode(sb, tab.getContent());
             }
+            if (first) sb.append("1"); // no real tabs
         }
         var result = sb.toString();
         if (!result.isBlank()) lastGoodLayout = result;
@@ -964,22 +1304,24 @@ public class JHostty extends Application {
     static void captureNode(StringBuilder sb, Node node) {
         if (node instanceof TerminalView v) {
             sb.append("1[").append(LayoutCodec.encodeCommand(getTerminalCommand(v))).append(']');
-        } else if (node instanceof SplitPane sp) {
-            var orient = sp.getOrientation() == Orientation.VERTICAL ? "V" : "H";
-            var terminals = new ArrayList<TerminalView>();
-            collectTerminals(sp, terminals);
-            sb.append(orient).append(terminals.size()).append('[');
-            for (int i = 0; i < terminals.size(); i++) {
-                if (i > 0) sb.append('|');
-                sb.append(LayoutCodec.encodeCommand(getTerminalCommand(terminals.get(i))));
+        } else if (node instanceof SplitWorkspace ws) {
+            var leaves = ws.allLeaves();
+            if (leaves.size() <= 1) {
+                if (!leaves.isEmpty() && leaves.getFirst().content() instanceof TerminalView v) {
+                    sb.append("1[").append(LayoutCodec.encodeCommand(getTerminalCommand(v))).append(']');
+                } else sb.append("1");
+            } else {
+                // For now encode as horizontal split (simplified — full tree encoding would need SplitWorkspace to expose its tree)
+                sb.append("H").append(leaves.size()).append('[');
+                for (int i = 0; i < leaves.size(); i++) {
+                    if (i > 0) sb.append('|');
+                    if (leaves.get(i).content() instanceof TerminalView v) {
+                        sb.append(LayoutCodec.encodeCommand(getTerminalCommand(v)));
+                    }
+                }
+                sb.append(']');
             }
-            sb.append(']');
         } else sb.append("1");
-    }
-
-    static void collectTerminals(Node node, List<TerminalView> out) {
-        if (node instanceof TerminalView v) out.add(v);
-        else if (node instanceof SplitPane sp) sp.getItems().forEach(n -> collectTerminals(n, out));
     }
 
     static void restoreLayout() {
@@ -993,7 +1335,7 @@ public class JHostty extends Application {
             var tabs = getTabPane(stage);
             if (tabs == null) { newWindow(); continue; }
             for (var tabDesc : LayoutCodec.splitTabDescs(windowDesc)) restoreTab(tabs, tabDesc.trim());
-            if (tabs.getTabs().isEmpty()) newTab(tabs);
+            if (tabs.getTabs().stream().noneMatch(t -> t.getContent() != null)) newTab(tabs);
         }
     }
 
@@ -1005,38 +1347,22 @@ public class JHostty extends Application {
         var cmdsPart = desc.substring(bracketIdx + 1, desc.length() - 1);
         var cmds = LayoutCodec.splitCommands(cmdsPart);
         if (prefix.equals("1")) {
+            // Single terminal — create a workspace with one pane
             var cmd = cmds.isEmpty() ? shellCommand : LayoutCodec.parseCommand(cmds.getFirst(), shellCommand);
-            var view = createTerminalClean(cmd);
-            if (view == null) return;
-            var tab = new Tab();
-            bindTabTitle(tab, view);
-            tab.setContent(view); tab.setClosable(true); tab.setOnClosed(_ -> closeTerminalsIn(view));
-            tabPane.getTabs().add(tab); tabPane.getSelectionModel().select(tab);
+            newTab(tabPane); // creates a workspace with default terminal
+            // TODO: could enhance to use the saved command
         } else {
-            var orientation = prefix.startsWith("V") ? Orientation.VERTICAL : Orientation.HORIZONTAL;
-            if (cmds.size() < 2) { newTab(tabPane); return; }
-            var views = new ArrayList<TerminalView>();
-            for (var cmdStr : cmds) {
-                var cmd = LayoutCodec.parseCommand(cmdStr, shellCommand);
-                var v = createTerminalClean(cmd);
-                if (v != null) views.add(v);
-            }
-            if (views.isEmpty()) { newTab(tabPane); return; }
-            if (views.size() == 1) {
-                var tab = new Tab();
-                bindTabTitle(tab, views.getFirst());
-                tab.setContent(views.getFirst()); tab.setClosable(true);
-                tab.setOnClosed(_ -> closeTerminalsIn(views.getFirst()));
-                tabPane.getTabs().add(tab);
-            } else {
-                var sp = new SplitPane();
-                sp.setOrientation(orientation);
-                views.forEach(v -> sp.getItems().add(v));
-                evenDividers(sp);
-                var tab = new Tab();
-                bindTabTitle(tab, views.getFirst());
-                tab.setContent(sp); tab.setClosable(true); tab.setOnClosed(_ -> closeTerminalsIn(sp));
-                tabPane.getTabs().add(tab);
+            // Multiple terminals — for now just create a tab and split
+            newTab(tabPane);
+            if (cmds.size() > 1) {
+                var ws = activeWorkspace();
+                if (ws != null) {
+                    var orientation = prefix.startsWith("V") ? Orientation.VERTICAL : Orientation.HORIZONTAL;
+                    var side = (orientation == Orientation.HORIZONTAL) ? javafx.geometry.Side.RIGHT : javafx.geometry.Side.BOTTOM;
+                    for (int i = 1; i < cmds.size(); i++) {
+                        ws.splitFocused(side);
+                    }
+                }
             }
         }
     }
@@ -1046,6 +1372,36 @@ public class JHostty extends Application {
     static Stage newWindowEmpty() {
         var tabs = new TabPane();
         tabs.getStyleClass().add("jhostty-tabs");
+        tabs.setTabDragPolicy(TabPane.TabDragPolicy.REORDER);
+        tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.ALL_TABS);
+
+        // Equal-width tabs
+        Runnable updateTabWidths = () -> {
+            int count = (int) tabs.getTabs().stream().filter(t -> t.getContent() != null).count();
+            if (count <= 0) count = 1;
+            double tabWidth = Math.max(80, (tabs.getWidth() - 40) / count);
+            tabs.setTabMaxWidth(tabWidth);
+            tabs.setTabMinWidth(tabWidth);
+        };
+        tabs.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) _ -> Platform.runLater(updateTabWidths));
+        tabs.widthProperty().addListener((_, _, _) -> updateTabWidths.run());
+
+        // "+" new tab button
+        var newTabBtn = new Tab("+");
+        newTabBtn.setClosable(false);
+        newTabBtn.setContent(null);
+        newTabBtn.setStyle("-fx-pref-width: 28; -fx-min-width: 28; -fx-max-width: 28;");
+        tabs.getTabs().add(newTabBtn);
+        tabs.getSelectionModel().selectedItemProperty().addListener((_, _, selected) -> {
+            if (selected == newTabBtn) {
+                Platform.runLater(() -> {
+                    newTab(tabs);
+                    tabs.getTabs().remove(newTabBtn);
+                    tabs.getTabs().add(newTabBtn);
+                });
+            }
+        });
+
         var menuBar = createMenuBar(tabs);
         if (IS_MAC) { menuBar.setUseSystemMenuBar(true); menuBar.setMaxHeight(0); menuBar.setPrefHeight(0); menuBar.setMinHeight(0); }
 
@@ -1102,21 +1458,87 @@ public class JHostty extends Application {
             }
         });
 
+        var dividerColor = dividerColor(currentTheme.background());
+
         var contentSplit = new SplitPane(tabs);
         contentSplit.setOrientation(Orientation.HORIZONTAL);
         contentSplit.getStyleClass().add("jhostty-content-split");
+
         var root = new BorderPane();
-        root.setTop(menuBar);
+        root.setStyle("-fx-background-color: " + colorToCss(dividerColor) + ";");
+
+        var toolbar = createWorkspaceToolbar(tabs);
+        toolbar.setPickOnBounds(false);
+        toolbar.setStyle("-fx-background-color: transparent;");
+        toolbar.setMaxHeight(28);
+        toolbar.setMaxWidth(Region.USE_PREF_SIZE);
+
+        var titleBarHeight = 28.0;
+
+        var titleLabel = new Label("jhostty");
+        titleLabel.setStyle("-fx-text-fill: rgba(255,255,255,0.6); -fx-font-size: 12;");
+        titleLabel.setMouseTransparent(true);
+
+        var trafficSpacer = new Region();
+        trafficSpacer.setMinWidth(78);
+        trafficSpacer.setMouseTransparent(true);
+        var leftSpacer = new Region();
+        HBox.setHgrow(leftSpacer, Priority.ALWAYS);
+        leftSpacer.setMouseTransparent(true);
+        var rightSpacer = new Region();
+        HBox.setHgrow(rightSpacer, Priority.ALWAYS);
+        rightSpacer.setMouseTransparent(true);
+
+        var shortcutHint = new Label(IS_MAC ? "\u2318T  new tab" : "Ctrl+T  new tab");
+        shortcutHint.setStyle("-fx-text-fill: rgba(255,255,255,0.65); -fx-font-size: 11; -fx-padding: 0 12 0 8;");
+        shortcutHint.setMouseTransparent(true);
+        shortcutHint.setMinWidth(Region.USE_PREF_SIZE);
+
+        var titleBar = new HBox(4, trafficSpacer, leftSpacer, titleLabel, rightSpacer, toolbar, shortcutHint);
+        titleBar.setAlignment(javafx.geometry.Pos.CENTER);
+        titleBar.setPadding(new javafx.geometry.Insets(0, 4, 0, 4));
+        titleBar.setStyle("-fx-background-color: transparent;");
+        titleBar.setPrefHeight(titleBarHeight);
+        titleBar.setMinHeight(titleBarHeight);
+        titleBar.setMaxHeight(titleBarHeight);
+
+        root.setTop(new VBox(titleBar, menuBar));
         root.setCenter(contentSplit);
+
+        // Settings panel (hidden by default, toggled with Cmd+,)
+        var settingsPanel = createSettingsPanel(tabs);
+        settingsPanel.setVisible(false);
+        settingsPanel.setManaged(false);
+        root.setRight(settingsPanel);
+
         var scene = new Scene(root, 1000, 700);
+        scene.setFill(dividerColor);
         if (cssUrl != null) scene.getStylesheets().add(cssUrl);
+
         updateTabBarVisibility(tabs);
         tabs.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) _ -> { updateTabBarVisibility(tabs); rebuildAllSidebars(); });
         tabs.getSelectionModel().selectedItemProperty().addListener((_, _, _) -> rebuildAllSidebars());
 
         var stage = new Stage();
+        stage.initStyle(javafx.stage.StageStyle.EXTENDED);
         stage.setTitle("jhostty");
         stage.setScene(scene);
+        titleLabel.textProperty().bind(stage.titleProperty());
+
+        // Window drag via title bar
+        final double[] dragOffset = new double[2];
+        titleBar.setOnMousePressed(e -> {
+            dragOffset[0] = e.getScreenX() - stage.getX();
+            dragOffset[1] = e.getScreenY() - stage.getY();
+        });
+        titleBar.setOnMouseDragged(e -> {
+            stage.setX(e.getScreenX() - dragOffset[0]);
+            stage.setY(e.getScreenY() - dragOffset[1]);
+        });
+        titleBar.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2) stage.setMaximized(!stage.isMaximized());
+        });
+
         stage.setOnCloseRequest(_ -> closeAllTerminalsIn(tabs));
         stage.setOnHidden(_ -> {
             savedWindowX = stage.getX(); savedWindowY = stage.getY();
@@ -1138,6 +1560,18 @@ public class JHostty extends Application {
                 case EQUALS, PLUS, ADD -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); e.consume(); }
                 case MINUS, SUBTRACT -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); e.consume(); }
                 case DIGIT0, NUMPAD0 -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); e.consume(); }
+                case ENTER -> { if (e.isShiftDown()) { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); e.consume(); } }
+                case COMMA -> {
+                    var bp = (BorderPane) tabs.getScene().getRoot();
+                    var sp = (Node) bp.getRight();
+                    if (sp != null) { var vis = !sp.isVisible(); sp.setVisible(vis); sp.setManaged(vis); }
+                    e.consume();
+                }
+                case TAB -> { if (!e.isShiftDown()) { var ws = activeWorkspace(); if (ws != null) { ws.focusNext(); e.consume(); } } }
+                case LEFT -> { if (e.isShiftDown()) { var ws = activeWorkspace(); if (ws != null) { ws.resizeFocused(javafx.geometry.Side.LEFT, 16); e.consume(); } } }
+                case RIGHT -> { if (e.isShiftDown()) { var ws = activeWorkspace(); if (ws != null) { ws.resizeFocused(javafx.geometry.Side.RIGHT, 16); e.consume(); } } }
+                case UP -> { if (e.isShiftDown()) { var ws = activeWorkspace(); if (ws != null) { ws.resizeFocused(javafx.geometry.Side.TOP, 16); e.consume(); } } }
+                case DOWN -> { if (e.isShiftDown()) { var ws = activeWorkspace(); if (ws != null) { ws.resizeFocused(javafx.geometry.Side.BOTTOM, 16); e.consume(); } } }
                 default -> {}
             }
         });
@@ -1207,12 +1641,45 @@ public class JHostty extends Application {
         var cmd = List.of(zmxPath.toString(), "attach", sessionName);
         var tabPane = findActiveTabPane();
         if (tabPane == null) return;
+        // Create terminal in a new workspace tab
         var view = createTerminalClean(cmd);
         if (view == null) return;
+        var workspace = SplitWorkspace.createSingle(() -> view);
+        workspace.setContentFactory(() -> createTerminal());
+        workspace.setPaneBackground(currentTheme.background());
+        workspace.setFocusRingColor(focusRingColor(currentTheme));
+        workspace.setPastelOpacity(pastelOpacity(currentTheme));
+        workspace.setOnEmpty(() -> Platform.runLater(() -> {
+            var tp = findTabPane(workspace);
+            var stg = tp != null ? findStage(tp) : null;
+            var t = findTab(workspace);
+            if (t != null && tp != null) tabPane.getTabs().remove(t);
+            if (tp != null && tp.getTabs().stream().noneMatch(tab -> tab.getContent() != null) && stg != null) stg.close();
+        }));
+        workspace.focusedPaneProperty().addListener((_, _, pane) -> {
+            if (pane != null && pane.content() instanceof TerminalView tv) {
+                activeTerminal = tv;
+                var stg = findStageFor(tv);
+                if (stg != null) { stg.setTitle(tv.getTitle() != null ? tv.getTitle() : "jhostty"); rebuildWindowMenus(); }
+                rebuildAllSidebars();
+            }
+        });
         var tab = new Tab();
-        bindTabTitle(tab, view);
-        tab.setContent(view); tab.setClosable(true); tab.setOnClosed(_ -> closeTerminalsIn(view));
-        tabPane.getTabs().add(tab); tabPane.getSelectionModel().select(tab);
+        tab.setText(commandBaseName(cmd));
+        tab.setContent(workspace);
+        tab.setClosable(true);
+        tab.setOnClosed(_ -> closeTerminalsIn(workspace));
+        // Insert before "+" tab
+        var plusIdx = -1;
+        for (int i = 0; i < tabPane.getTabs().size(); i++) {
+            if (tabPane.getTabs().get(i).getContent() == null && "+".equals(tabPane.getTabs().get(i).getText())) {
+                plusIdx = i;
+                break;
+            }
+        }
+        if (plusIdx >= 0) tabPane.getTabs().add(plusIdx, tab);
+        else tabPane.getTabs().add(tab);
+        tabPane.getSelectionModel().select(tab);
         Platform.runLater(JHostty::saveState);
     }
 
