@@ -1379,6 +1379,19 @@ public class JHostty extends Application {
         // Scroll to current theme
         allThemes.stream().filter(t -> t.label().equals(currentThemeName)).findFirst()
             .ifPresent(t -> { themeList.getSelectionModel().select(t); themeList.scrollTo(t); });
+        // Forward arrow keys from search field to list
+        themeSearch.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() == KeyCode.UP || e.getCode() == KeyCode.DOWN) {
+                var idx = themeList.getSelectionModel().getSelectedIndex();
+                if (e.getCode() == KeyCode.DOWN) idx = Math.min(idx + 1, themeList.getItems().size() - 1);
+                else idx = Math.max(idx - 1, 0);
+                themeList.getSelectionModel().select(idx);
+                themeList.scrollTo(idx);
+                e.consume();
+            } else if (e.getCode() == KeyCode.ENTER) {
+                e.consume(); // prevent Enter from leaving the field
+            }
+        });
         // Filter as user types
         themeSearch.textProperty().addListener((_, _, text) -> {
             themeList.getItems().clear();
@@ -1389,10 +1402,10 @@ public class JHostty extends Application {
                 allThemes.stream().filter(t -> t.label().toLowerCase().contains(lower))
                     .forEach(t -> themeList.getItems().add(t));
             }
+            if (!themeList.getItems().isEmpty()) themeList.getSelectionModel().select(0);
         });
-        // Apply on click/selection
-        themeList.setOnMouseClicked(_ -> {
-            var selected = themeList.getSelectionModel().getSelectedItem();
+        // Apply on selection change (arrow keys or click)
+        themeList.getSelectionModel().selectedItemProperty().addListener((_, _, selected) -> {
             if (selected != null && !selected.label().equals(currentThemeName)) {
                 currentThemeName = selected.label();
                 currentTheme = selected.theme();
