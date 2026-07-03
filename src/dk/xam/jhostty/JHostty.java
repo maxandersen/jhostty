@@ -2053,31 +2053,27 @@ public class JHostty extends Application {
             D + "  Auto-saved:" + R + "    ~/.config/jhostty/jhostty-state.properties\n" +
             D + "  Keys:" + R + "          theme, font, font-size, shell\n";
 
-        // Write to temp file and display with less
         try {
             var tmpFile = Files.createTempFile("jhostty-help", ".txt");
             tmpFile.toFile().deleteOnExit();
             Files.writeString(tmpFile, help);
-            var cmd = List.of("sh", "-c", "cat '" + tmpFile + "' && read -n1 -s -r -p '\nPress any key to close...'");
             var tabPane = findActiveTabPane();
             if (tabPane == null) return;
+            var cmd = List.of("sh", "-c",
+                "clear && cat " + tmpFile.toAbsolutePath() + " && printf '\\n\\033[2mPress q to close...\\033[0m' && while true; do read -n1 -s k; [ \"$k\" = q ] && break; done");
             var view = createTerminal(cmd);
-        if (view == null) return;
-        newTab(tabPane);
-        // Replace the new tab's workspace content with our help terminal
-        var ws = activeWorkspace();
-        if (ws != null) {
-            var leaves = ws.allLeaves();
-            if (!leaves.isEmpty()) {
-                // Close the default terminal and replace
-                var defaultLeaf = leaves.getFirst();
-                if (defaultLeaf.content() instanceof TerminalView defaultTv) {
-                    Thread.ofVirtual().start(defaultTv::close);
-                }
-                defaultLeaf.setContent(view);
-                ws.requestLayout();
-            }
-        }
+            if (view == null) return;
+            var tab = new Tab();
+            tab.setText("Help");
+            tab.setContent(new SplitWorkspace() {{
+                setContentFactory(() -> createTerminal());
+                setRoot(new LeafPane(PaneId.next(), view, "Help"));
+            }});
+            var ws = (SplitWorkspace) tab.getContent();
+            configureWorkspace(ws, tabPane);
+            setupTabGraphic(tab, tabPane);
+            tabPane.getTabs().add(tab);
+            tabPane.getSelectionModel().select(tab);
         } catch (IOException _) {}
     }
 
