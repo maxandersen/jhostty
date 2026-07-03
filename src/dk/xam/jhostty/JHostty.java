@@ -84,6 +84,7 @@ public class JHostty extends Application {
 
     // Layout
     static String lastGoodLayout = null;
+    static javafx.stage.Stage activeTabDragGhost = null;
 
     // Shared focus-follows-mouse state
     static final javafx.beans.property.BooleanProperty focusFollowsMouse = new javafx.beans.property.SimpleBooleanProperty(true);
@@ -502,17 +503,59 @@ public class JHostty extends Application {
                 pane.getChildren().add(addBtn);
                 tab.getProperties().put("jhostty.addBtn", addBtn);
 
-                // Tab tear-off: drag tab outside the tab bar to a new window
+                // Tab tear-off: drag outside tab bar shows ghost, release creates window
+                final double[] dragOrigin = new double[2];
+                final boolean[] tabDragging = {false};
+
+
+                tabHeader.setOnMousePressed(e -> {
+                    dragOrigin[0] = e.getScreenX();
+                    dragOrigin[1] = e.getScreenY();
+                    tabDragging[0] = false;
+                });
                 tabHeader.setOnMouseDragged(e -> {
-                    if (tabPane.getTabs().size() <= 1) return; // don't tear off the last tab
-                    var tabBarBounds = tabPane.lookup(".tab-header-area");
-                    if (tabBarBounds == null) return;
-                    var localPt = tabBarBounds.screenToLocal(e.getScreenX(), e.getScreenY());
+                    if (tabPane.getTabs().size() <= 1) return;
+                    var tabBarArea = tabPane.lookup(".tab-header-area");
+                    if (tabBarArea == null) return;
+                    var localPt = tabBarArea.screenToLocal(e.getScreenX(), e.getScreenY());
                     if (localPt == null) return;
-                    // If dragged significantly below the tab bar, tear off
-                    if (localPt.getY() > tabBarBounds.getBoundsInLocal().getHeight() + 40) {
+                    boolean outside = localPt.getY() > tabBarArea.getBoundsInLocal().getHeight() + 30
+                                   || localPt.getY() < -30;
+                    if (outside && !tabDragging[0]) {
+                        tabDragging[0] = true;
+                        // Show ghost window
+                        var ghost = new javafx.stage.Stage();
+                        ghost.initStyle(javafx.stage.StageStyle.TRANSPARENT);
+                        ghost.initOwner(findStage(tabPane));
+                        var title = tab.getText() != null ? tab.getText() : "Terminal";
+                        var ghostLabel = new Label(title);
+                        ghostLabel.setStyle("-fx-font-size: 12; -fx-text-fill: rgba(255,255,255,0.8);");
+                        var ghostPane = new HBox(ghostLabel);
+                        ghostPane.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 8; -fx-padding: 10 24; -fx-border-color: rgba(255,255,255,0.15); -fx-border-radius: 8;");
+                        ghostPane.setAlignment(javafx.geometry.Pos.CENTER);
+                        var ghostScene = new Scene(ghostPane);
+                        ghostScene.setFill(Color.TRANSPARENT);
+                        ghost.setScene(ghostScene);
+                        ghost.setWidth(200); ghost.setHeight(50);
+                        ghost.setX(e.getScreenX() - 100); ghost.setY(e.getScreenY() - 25);
+                        ghost.show();
+                        activeTabDragGhost = ghost;
+                    }
+                    if (tabDragging[0] && activeTabDragGhost != null) {
+                        activeTabDragGhost.setX(e.getScreenX() - 100);
+                        activeTabDragGhost.setY(e.getScreenY() - 25);
+                    }
+                    if (!outside && tabDragging[0]) {
+                        tabDragging[0] = false;
+                        if (activeTabDragGhost != null) { activeTabDragGhost.close(); activeTabDragGhost = null; activeTabDragGhost = null; }
+                    }
+                });
+                tabHeader.setOnMouseReleased(e -> {
+                    if (tabDragging[0] && activeTabDragGhost != null) {
+                        activeTabDragGhost.close(); activeTabDragGhost = null; activeTabDragGhost = null;
                         tearOffTab(tab, tabPane, e.getScreenX(), e.getScreenY());
                     }
+                    tabDragging[0] = false;
                 });
             }
             return;
@@ -520,8 +563,6 @@ public class JHostty extends Application {
     }
 
     static void tearOffTab(Tab tab, TabPane srcTabPane, double screenX, double screenY) {
-        if (tab.getProperties().containsKey("jhostty.tornOff")) return;
-        tab.getProperties().put("jhostty.tornOff", true);
         var content = tab.getContent();
         srcTabPane.getTabs().remove(tab);
         if (srcTabPane.getTabs().isEmpty()) {
@@ -1892,6 +1933,11 @@ public class JHostty extends Application {
             }
         });
         scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            // Escape cancels tab drag
+            if (e.getCode() == KeyCode.ESCAPE && activeTabDragGhost != null) {
+                activeTabDragGhost.close(); activeTabDragGhost = null;
+                e.consume(); return;
+            }
             if (debug && e.isShortcutDown()) debug("KeyEvent: code=" + e.getCode() + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown() + " shift=" + e.isShiftDown());
             if (!e.isShortcutDown()) return;
             switch (e.getCode()) {
