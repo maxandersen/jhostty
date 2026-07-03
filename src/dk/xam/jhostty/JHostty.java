@@ -1806,10 +1806,10 @@ public class JHostty extends Application {
         sidebarCloseBtn.setOnAction(_ -> toggleSidebar());
         var sidebarHeader = new HBox(sidebarTitle, new Region() {{ HBox.setHgrow(this, Priority.ALWAYS); }}, sidebarCloseBtn);
         sidebarHeader.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
-        sidebarHeader.setPadding(new javafx.geometry.Insets(8, 12, 8, 12));
-        sidebarHeader.getStyleClass().add("jhostty-sidebar");
+        var sidebarSep = new Separator();
         VBox.setVgrow(sidebarTree, Priority.ALWAYS);
-        var sidebar = new VBox(sidebarHeader, sidebarTree);
+        var sidebar = new VBox(sidebarHeader, sidebarSep, sidebarTree);
+        sidebar.setPadding(new javafx.geometry.Insets(12, 12, 0, 12));
         sidebar.getStyleClass().add("jhostty-sidebar");
         sidebar.setMinWidth(100);
         sidebarTree.setCellFactory(_ -> new TreeCell<>() {
