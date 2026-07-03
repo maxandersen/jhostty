@@ -1093,6 +1093,11 @@ public class JHostty extends Application {
                     .jhostty-settings .check-box .box { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 3; -fx-background-radius: 3; }
                     .jhostty-settings .check-box:selected .box .mark { -fx-background-color: %s; }
                     .jhostty-settings .separator .line { -fx-border-color: %s; -fx-border-width: 0.5 0 0 0; }
+                    .jhostty-settings .text-field { -fx-background-color: %s; -fx-text-fill: %s; -fx-border-color: %s; -fx-border-radius: 4; -fx-background-radius: 4; -fx-prompt-text-fill: %s; }
+                    .jhostty-settings .list-view { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 4; -fx-background-radius: 4; }
+                    .jhostty-settings .list-view .list-cell { -fx-text-fill: %s; -fx-background-color: transparent; -fx-font-size: 11; }
+                    .jhostty-settings .list-view .list-cell:filled:hover { -fx-background-color: %s; }
+                    .jhostty-settings .list-view .list-cell:filled:selected { -fx-background-color: %s; -fx-text-fill: %s; }
                     .jhostty-settings .combo-box { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 4; -fx-background-radius: 4; }
                     .jhostty-settings .combo-box .list-cell { -fx-text-fill: %s; -fx-font-size: 11; }
                     .jhostty-settings .combo-box-popup .list-view { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 4; -fx-background-radius: 4; }
@@ -1113,6 +1118,14 @@ public class JHostty extends Application {
                         // settings panel
                         menuBgCss, borderCss, fgCss, fgCss,
                         dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", borderCss, fgCss, sepCss,
+                        // text-field
+                        dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", fgCss, borderCss,
+                        dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)",
+                        // list-view
+                        dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderCss, fgCss,
+                        dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
+                        selCss, selText,
+                        // combo-box
                         dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", borderCss, fgCss,
                         menuBgCss, borderCss, fgCss,
                         dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
