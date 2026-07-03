@@ -1073,12 +1073,14 @@ public class JHostty extends Application {
                 (int)(selBg.getRed()*255), (int)(selBg.getGreen()*255), (int)(selBg.getBlue()*255));
         var selText = dark ? "white" : "black";
         var dividerCss = dark ? "#555555" : "#bbbbbb";
-        var tabBarBg = dark ? "rgba(20,20,20,0.95)" : "rgba(230,230,230,0.95)";
-        var tabSelectedBg = dark ? "rgba(60,60,60,0.9)" : "rgba(255,255,255,0.9)";
-        var tabTextCss = dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)";
-        var tabSelectedTextCss = dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.85)";
-        var tabCloseCss = dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)";
-        var tabCloseHoverCss = dark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.7)";
+        var tabBarColor = dark ? bg.darker() : bg.darker();
+        var tabBarBg = colorToCss(tabBarColor);
+        var tabSelectedColor = dark ? bg.brighter() : bg.brighter();
+        var tabSelectedBg = colorToCss(tabSelectedColor);
+        var tabTextCss = colorToCss(fg.deriveColor(0, 1, 1, 0.5));
+        var tabSelectedTextCss = colorToCss(fg.deriveColor(0, 1, 1, 0.85));
+        var tabCloseCss = colorToCss(fg.deriveColor(0, 1, 1, 0.3));
+        var tabCloseHoverCss = colorToCss(fg.deriveColor(0, 1, 1, 0.7));
         try {
             Files.writeString(cssPath, """
                     .single-tab > .tab-header-area { -fx-max-height: 0; -fx-pref-height: 0; -fx-min-height: 0; visibility: hidden; }
