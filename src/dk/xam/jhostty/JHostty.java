@@ -1345,7 +1345,10 @@ public class JHostty extends Application {
                 setText(item.label());
                 colorStrip.getChildren().clear();
                 var t = item.theme();
-                var colors = new Color[] { t.background(), t.foreground(), t.palette().get(1), t.palette().get(2), t.palette().get(4), t.palette().get(5) };
+                var p = t.palette();
+                var colors = new Color[] { t.background(), t.foreground(),
+                    p.size() > 1 ? p.get(1) : t.foreground(), p.size() > 2 ? p.get(2) : t.foreground(),
+                    p.size() > 4 ? p.get(4) : t.foreground(), p.size() > 5 ? p.get(5) : t.foreground() };
                 for (var c : colors) {
                     var swatch = new Region();
                     swatch.setMinSize(7, 12); swatch.setMaxSize(7, 12);
