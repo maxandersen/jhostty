@@ -314,6 +314,15 @@ public class JHostty extends Application {
             }
         });
 
+        var focusFollowsToggle = new CheckMenuItem("Focus Follows Mouse");
+        focusFollowsToggle.setSelected(false);
+        focusFollowsToggle.setOnAction(_ -> {
+            for (var w : windows) {
+                var tp2 = getTabPane(w);
+                if (tp2 != null) { for (var t : tp2.getTabs()) { if (t.getContent() instanceof SplitWorkspace ws) ws.focusFollowsMouseProperty().set(focusFollowsToggle.isSelected()); } }
+            }
+        });
+
         var settingsToggle = new MenuItem("Toggle Settings Panel");
         settingsToggle.setAccelerator(KeyCombination.keyCombination("Shortcut+,"));
         settingsToggle.setOnAction(_ -> {
@@ -322,7 +331,7 @@ public class JHostty extends Application {
             if (sp != null) { var vis = !sp.isVisible(); sp.setVisible(vis); sp.setManaged(vis); }
         });
 
-        var viewMenu = new Menu("View", null, toggleSidebarItem, new SeparatorMenuItem(), zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu, new SeparatorMenuItem(), animToggle, pastelToggle, new SeparatorMenuItem(), settingsToggle, reloadConfig);
+        var viewMenu = new Menu("View", null, toggleSidebarItem, new SeparatorMenuItem(), zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu, new SeparatorMenuItem(), animToggle, pastelToggle, focusFollowsToggle, new SeparatorMenuItem(), settingsToggle, reloadConfig);
 
         return new MenuBar(shellMenu, viewMenu, windowMenu);
     }
@@ -1180,6 +1189,11 @@ public class JHostty extends Application {
         animCheck.setStyle("-fx-text-fill: #ccc; -fx-font-size: 11;");
         animCheck.selectedProperty().addListener((_, _, v) -> forEachWorkspace(tabs, ws -> ws.animationsEnabledProperty().set(v)));
 
+        var focusFollowsCheck = new CheckBox("Focus Follows Mouse");
+        focusFollowsCheck.setSelected(false);
+        focusFollowsCheck.setStyle("-fx-text-fill: #ccc; -fx-font-size: 11;");
+        focusFollowsCheck.selectedProperty().addListener((_, _, v) -> forEachWorkspace(tabs, ws -> ws.focusFollowsMouseProperty().set(v)));
+
         var sep1 = new Separator();
         sep1.setStyle("-fx-background-color: rgba(255,255,255,0.1);");
         var sep2 = new Separator();
@@ -1202,7 +1216,7 @@ public class JHostty extends Application {
             headerLabel, headerRow,
             ringLabel, ringRow,
             animLabel, animRow,
-            sep2, pastelCheck, animCheck
+            sep2, pastelCheck, animCheck, focusFollowsCheck
         );
         panel.setPadding(new javafx.geometry.Insets(12));
         panel.setStyle("-fx-background-color: rgba(30,30,30,0.95); -fx-border-color: rgba(255,255,255,0.1); -fx-border-width: 0 0 0 1;");

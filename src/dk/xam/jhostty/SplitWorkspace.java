@@ -123,6 +123,7 @@ class SplitWorkspace extends Region {
     private final ObjectProperty<LeafPane> focusedPane = new SimpleObjectProperty<>();
     private final BooleanProperty pastelTinting = new SimpleBooleanProperty(true);
     private final BooleanProperty animationsEnabled = new SimpleBooleanProperty(true);
+    private final BooleanProperty focusFollowsMouse = new SimpleBooleanProperty(false);
     private Supplier<Node> contentFactory; // creates new terminal content
     private Runnable onEmpty; // called when last pane is removed
 
@@ -219,6 +220,7 @@ class SplitWorkspace extends Region {
 
     public BooleanProperty pastelTintingProperty() { return pastelTinting; }
     public BooleanProperty animationsEnabledProperty() { return animationsEnabled; }
+    public BooleanProperty focusFollowsMouseProperty() { return focusFollowsMouse; }
 
     /** Set gutter width between panes. */
     public void setGutter(double px) {
@@ -823,6 +825,15 @@ class SplitWorkspace extends Region {
             }
         }
         setCursor(Cursor.DEFAULT);
+
+        // Focus follows mouse
+        if (focusFollowsMouse.get()) {
+            var leaf = leafAt(mx, my);
+            if (leaf != null && leaf != focusedPane.get()) {
+                focusedPane.set(leaf);
+                if (leaf.content() != null) leaf.content().requestFocus();
+            }
+        }
     }
 
     private void handleMousePressed(MouseEvent e) {
