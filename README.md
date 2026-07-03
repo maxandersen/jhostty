@@ -7,30 +7,21 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Java-25-orange" alt="Java 25">
-  <img src="https://img.shields.io/badge/GhosttyFX-0.1.169-blue" alt="GhosttyFX">
+  <img src="https://img.shields.io/badge/GhosttyFX-0.1.173-blue" alt="GhosttyFX">
   <img src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-green" alt="Platforms">
-  <img src="https://img.shields.io/badge/lines-~940-lightgrey" alt="~940 lines">
+  <img src="https://img.shields.io/badge/themes-1365-purple" alt="1365 themes">
 </p>
 
-A full-featured terminal emulator in a **single Java file**, powered by [GhosttyFX](https://github.com/vlaaad/ghosttyfx) — Ghostty's terminal engine exposed as a JavaFX control. No build system, no IDE, no project setup — just [JBang](https://jbang.dev) and one file.
+A terminal emulator powered by [GhosttyFX](https://github.com/vlaaad/ghosttyfx) — Ghostty's terminal engine exposed as a JavaFX control. No build system, no IDE, no project setup — just [JBang](https://jbang.dev).
 
-![jhostty main window](screenshots/main.png)
-
-This was an idea created, edited and published in a few hours a Sunday morning - no promises; but do share if it works or not for you :)
+jhostty [started as a single ~940-line Java file](https://github.com/maxandersen/jhostty/commit/38c3c2a) hacked together on a Sunday morning and has since evolved into a more full-featured terminal with tiling splits, 1365 themes, a command palette, tab management, and more — while still running with a simple `jbang` command.
 
 ## Get Started
 
 **Run instantly** (JBang downloads Java 25 automatically if needed):
 
 ```bash
-jbang jhostty@maxandersen
-```
-
-**Install as a command** for everyday use:
-
-```bash
-jbang app install jhostty@maxandersen
-jhostty
+jbang https://github.com/maxandersen/jhostty/blob/combined/jhostty.java
 ```
 
 Or clone and run from source:
@@ -38,102 +29,100 @@ Or clone and run from source:
 ```bash
 git clone https://github.com/maxandersen/jhostty.git
 cd jhostty
+git checkout combined
 jbang jhostty.java
 ```
 
 ## Features
 
-### 🪟 Multiple Windows, Tabs & Splits
+### 🪟 Tiling Split Panes
 
-Open as many windows, tabs, and split panes as you need. Horizontal and vertical splits can be nested freely.
+A custom tiling workspace (inspired by [Mitchell Hashimoto's SuperSplit](https://mitchellh.com/writing/ghostty-is-1.0#supersplit)) with recursive horizontal/vertical splits, weighted sizing, animated reflow, pane zoom, and drag & drop reorder.
 
-![Split panes](screenshots/splits.png)
+- **Add Column** (⌘D) / **Add Row** (⌘⇧D) to split
+- **Drag pane headers** to swap or reorder
+- **Drag a pane outside** the window to create a new window
+- **Double-click header** to zoom/unzoom a pane
+- **Hold ⌘** to see pane numbers, press 1–9 to jump
+- **⌘⇧Enter** to toggle pane zoom
+- **⌘⇧←↑→↓** to resize the focused pane
+- **Divider drag** including corner drag at junctions (both axes)
 
-Tab bar appears automatically when you have more than one tab, hides when you're back to one.
+### 📑 Tabs
 
-![Tabs](screenshots/tabs.png)
+- **⌘T** new tab (inserts after current)
+- **⌘⇧T** show all tabs — grid overview with snapshots and smooth zoom animation
+- **Drag tabs** to reorder
+- **+** button on each tab (visible on hover) to add adjacent tab
+- **Close Other Tabs**, **Close Tabs to Left/Right** via command palette
 
-### 🎨 10 Built-in Themes
+### 🎯 Command Palette (⌘P)
 
-Switch themes on the fly from the View menu — the entire UI adapts, including context menus and split dividers.
+VS Code-style command palette with fuzzy search across all commands, tabs, and 1365 themes. Arrow keys to navigate, Enter to execute.
 
-![Themes](screenshots/themes.png)
+### 🎨 1365 Themes
 
-### 🔍 Per-Terminal Zoom
+Bundled themes sourced from iTerm2-Color-Schemes, Gogh, and more. Browse and apply instantly via the Settings panel (searchable list with color previews) or the command palette.
 
-Each split pane has its own independent zoom level. Zoom with keyboard shortcuts, scroll wheel, or trackpad pinch (macOS). The title bar shows the current zoom percentage.
+### 📊 Settings Panel (⌘,)
 
-![Zoom levels](screenshots/zoom-levels.png)
+Live-adjustable settings: theme selector, zoom, pastel opacity, gutter width, corner radius, header height, focus ring, animation speed, and toggles for pastel tinting, animations, and focus-follows-mouse.
 
-### 🔤 All System Fonts
+### 🔒 Read-Only Mode
 
-Every font on your system is available in the View → Font menu. Popular terminal fonts (JetBrains Mono, Fira Code, Hack, SF Mono, Consolas) are listed first for quick access.
+Toggle via command palette or right-click. Blocks keyboard input while allowing scrolling, selection, and copy. Shows an orange "READ-ONLY" pill badge.
+
+### 📂 Sidebar (⌘/)
+
+Tree view of all windows, tabs, and terminals. Shows zmx session integration with attach support. Click to navigate, double-click to focus.
 
 ### ✨ More
 
-- **Drag-and-drop** — drop files, text, or URLs onto any terminal pane
-- **Link detection** — clickable URLs in terminal output
-- **Right-click context menu** — styled to match the current theme
-- **Shell integration** — search (⌘F/Ctrl+F) and prompt navigation via Ghostty shell integration
-- **Native macOS menu bar** — app name, menus, and shortcuts feel native
-- **Cross-platform shortcuts** — ⌘ on macOS, Ctrl on Windows/Linux
+- **Focus follows mouse** — enabled by default, toggle in settings
+- **Pinch-to-zoom** — trackpad zoom without modifier key
+- **Per-terminal zoom** with ⌘+/⌘- and scroll wheel
+- **Drag-and-drop** files, text, or URLs onto any terminal
+- **Layout persistence** — full split tree saved/restored across restarts
+- **Native macOS title bar** with custom toolbar
+- **Theme-aware UI** — tabs, scrollbars, context menus, sidebar, and settings all adapt
+- **zmx session** integration
+- **Help** (⌘⇧/) — ANSI-styled reference in a terminal tab
 
 ## Keyboard Shortcuts
 
 | Action | macOS | Windows / Linux |
 |--------|-------|-----------------|
-| New Window | ⌘N | Ctrl+N |
+| Command Palette | ⌘P | Ctrl+P |
 | New Tab | ⌘T | Ctrl+T |
-| Split Horizontal | ⌘D | Ctrl+D |
-| Split Vertical | ⌘⇧D | Ctrl+Shift+D |
-| Close Terminal | ⌘W | Ctrl+W |
-| Zoom In | ⌘+ | Ctrl++ |
-| Zoom Out | ⌘− | Ctrl+− |
+| Show All Tabs | ⌘⇧T | Ctrl+Shift+T |
+| New Window | ⌘N | Ctrl+N |
+| Add Column | ⌘D | Ctrl+D |
+| Add Row | ⌘⇧D | Ctrl+Shift+D |
+| Close Pane/Tab | ⌘W | Ctrl+W |
+| Zoom In / Out | ⌘+ / ⌘- | Ctrl++ / Ctrl+- |
 | Reset Zoom | ⌘0 | Ctrl+0 |
-| Search | ⌘F | Ctrl+F |
-| Scroll Zoom | ⌘+scroll | Ctrl+scroll |
-
-## Requirements
-
-- [JBang](https://jbang.dev) — that's it. JBang handles everything else:
-  - Downloads **Java 25** automatically if not present
-  - Resolves **GhosttyFX**, **pty4j**, and all dependencies
-  - Compiles and caches the single `.java` file
-
-## How It Works
-
-jhostty is a single `jhostty.java` file — ~940 lines, no build system, no project structure. JBang reads the dependency declarations at the top of the file, resolves everything from Maven Central, and runs it.
-
-```
-jhostty.java
-├── Terminal rendering ← GhosttyFX (Ghostty's engine in JavaFX)
-├── PTY backend       ← pty4j (cross-platform pseudo-terminal)
-├── UI                ← JavaFX (comes with GhosttyFX)
-└── Build/run         ← JBang (zero setup)
-```
-
-Key design choices:
-- **No `Application` subclass ceremony** — uses `Application.launch()` with a minimal `start()` method
-- **All state is static** — single-file simplicity, no DI framework
-- **Per-terminal zoom** via node properties — no global state conflicts
-- **Event filters** intercept shortcuts before the terminal view consumes them
-- **Dynamic CSS** — theme changes regenerate a temp CSS file and hot-reload it
+| Zoom/Unzoom Pane | ⌘⇧Enter | Ctrl+Shift+Enter |
+| Focus Pane 1–9 | ⌘1–⌘9 | Ctrl+1–9 |
+| Focus Next Pane | ⌘Tab | Ctrl+Tab |
+| Resize Pane | ⌘⇧↑↓←→ | Ctrl+Shift+↑↓←→ |
+| Toggle Sidebar | ⌘/ | Ctrl+/ |
+| Toggle Settings | ⌘, | Ctrl+, |
+| Help | ⌘⇧/ | Ctrl+Shift+/ |
+| Quit | ⌘Q | Ctrl+Q |
 
 ## Configuration
 
-jhostty automatically saves your preferences (theme, font, zoom, window position) to:
+Preferences (theme, font, zoom, layout, window position) are auto-saved to:
 
 ```
 ~/.config/jhostty/jhostty-state.properties
 ```
 
-This file is auto-managed — changes you make in the app are saved on exit. To customize settings permanently, create your own override file:
+Create a user override file for permanent settings:
 
 ```
 ~/.config/jhostty/jhostty.properties
 ```
-
-User config takes priority over saved state. Omit a key or leave it blank to auto-detect / use the default.
 
 ### Available settings
 
@@ -141,11 +130,11 @@ User config takes priority over saved state. Omit a key or leave it blank to aut
 |-----|-------------|---------|
 | `theme` | Theme name (e.g. `Dracula`, `Nord`, `Catppuccin Mocha`) | Ghostty Default |
 | `font` | Font family (e.g. `JetBrains Mono`) | Auto-detected |
-| `font-size` | Base font size in points — what "Reset Zoom" returns to | `15.0` |
-| `zoom` | Current zoom level in points — remembered across restarts | Same as `font-size` |
+| `font-size` | Base font size in points | `15.0` |
+| `zoom` | Current zoom level | Same as `font-size` |
 | `shell` | Shell command (e.g. `/bin/zsh`) | Auto-detected |
-| `window-x` | Window X position in pixels | OS default |
-| `window-y` | Window Y position in pixels | OS default |
+| `sidebar` | Show sidebar on startup | `false` |
+| `layout` | Split tree layout (auto-saved) | — |
 
 ### Example
 
@@ -156,29 +145,30 @@ font=JetBrains Mono
 font-size=16.0
 ```
 
-Use **View → Reload Config** to apply changes without restarting.
+Use **View → Reload Config** or the command palette to apply changes without restarting.
 
-## Font Recommendation
+## Architecture
 
-For the best experience with nerd font glyphs (powerline symbols, git icons):
+jhostty started as a single `jhostty.java` file and has grown into a modular structure, still runnable with just `jbang`:
 
-```bash
-# macOS
-brew install font-jetbrains-mono-nerd-font
-
-# Linux
-sudo apt install fonts-jetbrains-mono  # or your distro's equivalent
-
-# Windows
-# Download from https://www.nerdfonts.com/font-downloads
 ```
-
-## Debugging
-
-Run with `--debug` to log input events and modifiers to stderr:
-
-```bash
-jbang jhostty@maxandersen --debug
+jhostty.java                          ← Entry point (thin launcher)
+src/dk/xam/jhostty/
+├── JHostty.java                      ← Main app (~2600 lines)
+├── SplitWorkspace.java               ← Tiling split pane engine (~1800 lines)
+├── Themes.java                       ← Bridge to 1365 bundled themes
+├── FontManager.java                  ← Font detection
+├── ShellDetection.java               ← Shell auto-detection
+├── PtyTerminal.java                  ← PTY process wrapper
+├── LayoutCodec.java                  ← Layout serialization (T/C/R format)
+├── MacUtils.java                     ← macOS app name via FFI
+└── ZmxSession.java                   ← zmx session integration
+src/dk/xam/themes/
+├── ThemeRegistry.java                ← Theme loading from bundled JSON
+├── TerminalColorScheme.java          ← Color scheme model
+└── ColorUtil.java                    ← Color parsing utilities
+themes/
+└── builtin-themes.json               ← 1365 bundled color schemes
 ```
 
 ## Built With
@@ -187,7 +177,7 @@ jbang jhostty@maxandersen --debug
 |-----------|------|-----|
 | [GhosttyFX](https://github.com/vlaaad/ghosttyfx) | Terminal control | Ghostty's rendering engine as a JavaFX node |
 | [pty4j](https://github.com/JetBrains/pty4j) | PTY backend | Cross-platform pseudo-terminal from JetBrains |
-| [JBang](https://jbang.dev) | Build & run | Zero-setup Java scripting — no Maven, no Gradle |
+| [JBang](https://jbang.dev) | Build & run | Zero-setup Java scripting |
 | [JavaFX](https://openjfx.io) | UI toolkit | Comes transitively via GhosttyFX |
 
 ## License
