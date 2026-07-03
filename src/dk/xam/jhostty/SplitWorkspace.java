@@ -1163,16 +1163,24 @@ class SplitWorkspace extends Region {
         }
 
         // Find which workspace the cursor is over (could be another window)
+        // Check the source workspace first to avoid matching hidden tab workspaces
         SplitWorkspace targetWs = null;
         javafx.geometry.Point2D targetLocal = null;
-        for (var ws : ALL_WORKSPACES) {
-            if (!ws.isVisible() || ws.getScene() == null) continue;
-            var pt = ws.screenToLocal(e.getScreenX(), e.getScreenY());
-            if (pt != null && pt.getX() >= 0 && pt.getY() >= 0
-                    && pt.getX() <= ws.getWidth() && pt.getY() <= ws.getHeight()) {
-                targetWs = ws;
-                targetLocal = pt;
-                break;
+        var selfPt = screenToLocal(e.getScreenX(), e.getScreenY());
+        if (selfPt != null && selfPt.getX() >= 0 && selfPt.getY() >= 0
+                && selfPt.getX() <= getWidth() && selfPt.getY() <= getHeight()) {
+            targetWs = this;
+            targetLocal = selfPt;
+        } else {
+            for (var ws : ALL_WORKSPACES) {
+                if (ws == this || !ws.isVisible() || ws.getScene() == null) continue;
+                var pt = ws.screenToLocal(e.getScreenX(), e.getScreenY());
+                if (pt != null && pt.getX() >= 0 && pt.getY() >= 0
+                        && pt.getX() <= ws.getWidth() && pt.getY() <= ws.getHeight()) {
+                    targetWs = ws;
+                    targetLocal = pt;
+                    break;
+                }
             }
         }
 
