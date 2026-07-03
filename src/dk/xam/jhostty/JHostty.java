@@ -339,7 +339,15 @@ public class JHostty extends Application {
 
         var viewMenu = new Menu("View", null, toggleSidebarItem, new SeparatorMenuItem(), zoomIn, zoomOut, zoomReset, new SeparatorMenuItem(), themeMenu, fontMenu, new SeparatorMenuItem(), animToggle, pastelToggle, focusFollowsToggle, new SeparatorMenuItem(), settingsToggle, reloadConfig);
 
-        return new MenuBar(shellMenu, viewMenu, windowMenu);
+        // Help menu
+        var helpItem = new MenuItem("jhostty Help");
+        helpItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+/"));
+        helpItem.setOnAction(_ -> showHelp());
+        var aboutItem = new MenuItem("About jhostty");
+        aboutItem.setOnAction(_ -> showHelp());
+        var helpMenu = new Menu("Help", null, helpItem, aboutItem);
+
+        return new MenuBar(shellMenu, viewMenu, windowMenu, helpMenu);
     }
 
     // --- Context Menu ---
@@ -1984,6 +1992,120 @@ public class JHostty extends Application {
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
         Platform.runLater(JHostty::saveState);
+    }
+
+    // --- Help ---
+
+    static Stage helpStage;
+
+    static void showHelp() {
+        if (helpStage != null && helpStage.isShowing()) { helpStage.toFront(); helpStage.requestFocus(); return; }
+
+        var sc = IS_MAC ? "\u2318" : "Ctrl+";
+        var sh = IS_MAC ? "\u21E7" : "Shift+";
+
+        var content = """
+            <html>
+            <head><style>
+                body { font-family: -apple-system, 'Segoe UI', sans-serif; background: %s; color: %s;
+                       padding: 24px 32px; line-height: 1.6; font-size: 13px; }
+                h1 { font-size: 22px; margin: 0 0 4px 0; }
+                .subtitle { color: %s; font-size: 13px; margin-bottom: 20px; }
+                h2 { font-size: 15px; margin: 20px 0 8px 0; border-bottom: 1px solid %s; padding-bottom: 4px; }
+                table { border-collapse: collapse; width: 100%%; margin: 8px 0; }
+                td { padding: 3px 12px 3px 0; vertical-align: top; }
+                td:first-child { font-weight: 500; white-space: nowrap; color: %s; }
+                .section { margin: 12px 0; }
+                kbd { background: %s; padding: 1px 6px; border-radius: 3px; font-size: 12px; font-family: monospace; }
+                ul { padding-left: 20px; margin: 4px 0; }
+                li { margin: 2px 0; }
+            </style></head>
+            <body>
+                <h1>\u2B1A jhostty</h1>
+                <div class="subtitle">A modern terminal emulator built with JavaFX and Ghostty</div>
+
+                <h2>Keyboard Shortcuts</h2>
+                <table>
+                <tr><td><kbd>%sT</kbd></td><td>New tab (inserted after current)</td></tr>
+                <tr><td><kbd>%sN</kbd></td><td>New window</td></tr>
+                <tr><td><kbd>%sD</kbd></td><td>Add column (split right)</td></tr>
+                <tr><td><kbd>%s%sD</kbd></td><td>Add row (split down)</td></tr>
+                <tr><td><kbd>%sW</kbd></td><td>Close pane / tab</td></tr>
+                <tr><td><kbd>%sQ</kbd></td><td>Quit</td></tr>
+                <tr><td></td><td></td></tr>
+                <tr><td><kbd>%s+</kbd> / <kbd>%s-</kbd></td><td>Zoom in / out</td></tr>
+                <tr><td><kbd>%s0</kbd></td><td>Reset zoom</td></tr>
+                <tr><td><kbd>Pinch</kbd></td><td>Trackpad zoom</td></tr>
+                <tr><td></td><td></td></tr>
+                <tr><td><kbd>%s1</kbd>\u2013<kbd>%s9</kbd></td><td>Focus pane by number</td></tr>
+                <tr><td><kbd>%sTab</kbd></td><td>Focus next pane</td></tr>
+                <tr><td><kbd>%s%sEnter</kbd></td><td>Zoom / unzoom pane</td></tr>
+                <tr><td><kbd>%s%s\u2190\u2191\u2192\u2193</kbd></td><td>Resize focused pane</td></tr>
+                <tr><td></td><td></td></tr>
+                <tr><td><kbd>%s/</kbd></td><td>Toggle sidebar</td></tr>
+                <tr><td><kbd>%s,</kbd></td><td>Toggle settings panel</td></tr>
+                </table>
+
+                <h2>Split Panes</h2>
+                <ul>
+                <li>Hold <kbd>%s</kbd> to see pane numbers, then press a digit to jump</li>
+                <li>Drag a pane header to reorder or swap panes</li>
+                <li>Drag a pane outside the window to create a new window</li>
+                <li>Double-click a pane header to zoom/unzoom</li>
+                <li>Drag dividers to resize; drag corners to resize both axes</li>
+                </ul>
+
+                <h2>Tabs</h2>
+                <ul>
+                <li>Click <b>+</b> on a tab to add a new tab next to it</li>
+                <li>Click <b>\u2715</b> to close a tab</li>
+                <li>Drag tabs to reorder</li>
+                </ul>
+
+                <h2>Features</h2>
+                <ul>
+                <li>Theme support (View \u2192 Theme or Settings panel)</li>
+                <li>Font selection (View \u2192 Font)</li>
+                <li>Focus follows mouse (View menu or Settings)</li>
+                <li>Pastel pane tinting for visual distinction</li>
+                <li>zmx session integration (Shell \u2192 Attach zmx Session)</li>
+                <li>Layout save/restore across restarts</li>
+                <li>Drag & drop files onto terminal to paste paths</li>
+                </ul>
+
+                <h2>Configuration</h2>
+                <div class="section">
+                User config: <kbd>~/.config/jhostty/jhostty.properties</kbd><br>
+                Auto-saved state: <kbd>~/.config/jhostty/jhostty-state.properties</kbd><br>
+                Available keys: <kbd>theme</kbd>, <kbd>font</kbd>, <kbd>font-size</kbd>, <kbd>shell</kbd>
+                </div>
+            </body></html>
+            """.formatted(
+                hexColor(currentTheme.background()), hexColor(currentTheme.foreground()),
+                hexColor(currentTheme.foreground().deriveColor(0,1,1,0.6)),
+                hexColor(currentTheme.foreground().deriveColor(0,1,1,0.2)),
+                hexColor(currentTheme.foreground().deriveColor(0,1,1,0.8)),
+                hexColor(currentTheme.background().brighter()),
+                sc, sc, sc, sc, sh, sc, sc,
+                sc, sc, sc,
+                sc, sc, sc, sc, sh, sc, sh,
+                sc, sc, IS_MAC ? "\u2318" : "Ctrl"
+            );
+
+        var webView = new javafx.scene.web.WebView();
+        webView.getEngine().loadContent(content);
+        webView.setContextMenuEnabled(false);
+
+        var scene = new Scene(webView, 520, 650);
+        helpStage = new Stage();
+        helpStage.setTitle("jhostty Help");
+        helpStage.setScene(scene);
+        helpStage.setOnHidden(_ -> helpStage = null);
+        helpStage.show();
+    }
+
+    static String hexColor(Color c) {
+        return String.format("#%02x%02x%02x", (int)(c.getRed()*255), (int)(c.getGreen()*255), (int)(c.getBlue()*255));
     }
 
     static TabPane findActiveTabPane() {

@@ -1,11 +1,13 @@
 package dk.xam.themes.sync;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dk.xam.themes.ColorUtil;
 import dk.xam.themes.TerminalColorScheme;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -15,13 +17,16 @@ import java.util.List;
 /**
  * Imports themes from terminal.sexy (https://github.com/stayradiated/terminal.sexy).
  * <p>
- * The repo stores scheme data in {@code schemes/} as JSON files with color arrays.
+ * Scheme data lives in {@code dist/schemes/}. An {@code index.json} lists all
+ * available scheme paths (e.g. "base16/3024.dark", "collection/monokai").
+ * Each scheme is a JSON file with a {@code color} array of 16 hex strings
+ * plus optional {@code foreground} and {@code background}.
  */
 public class TerminalSexySource implements ThemeSource {
-    private static final String API_URL =
-            "https://api.github.com/repos/stayradiated/terminal.sexy/contents/schemes";
-    private static final String RAW_BASE =
-            "https://raw.githubusercontent.com/stayradiated/terminal.sexy/master/schemes/";
+    private static final String INDEX_URL =
+            "https://raw.githubusercontent.com/stayradiated/terminal.sexy/master/dist/schemes/index.json";
+    private static final String SCHEME_BASE =
+            "https://raw.githubusercontent.com/stayradiated/terminal.sexy/master/dist/schemes/";
 
     private final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
     private final ObjectMapper mapper = new ObjectMapper();
@@ -34,68 +39,51 @@ public class TerminalSexySource implements ThemeSource {
 
     @Override
     public List<TerminalColorScheme> fetch() throws Exception {
-        System.out.println("  Fetching file list from terminal.sexy...");
-        // terminal.sexy has subdirectories per category
-        var allThemes = new ArrayList<TerminalColorScheme>();
-        fetchDir(API_URL, allThemes);
-        System.out.printf("  Imported %d themes from terminal.sexy%n", allThemes.size());
-        return allThemes;
-    }
-
-    private void fetchDir(String apiUrl, List<TerminalColorScheme> themes) throws Exception {
-        var req = HttpRequest.newBuilder(URI.create(apiUrl))
-                .header("Accept", "application/vnd.github.v3+json")
-                .GET().build();
+        System.out.println("  Fetching index from terminal.sexy...");
+        var req = HttpRequest.newBuilder(URI.create(INDEX_URL)).GET().build();
         var resp = client.send(req, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() != 200) {
-            System.err.println("    WARN: API returned " + resp.statusCode() + " for " + apiUrl);
-            return;
+            throw new RuntimeException("Failed to fetch index: " + resp.statusCode());
         }
 
-        var files = mapper.readTree(resp.body());
-        for (var file : files) {
-            String type = file.get("type").asText();
-            String name = file.get("name").asText();
+        List<String> schemePaths = mapper.readValue(resp.body(), new TypeReference<>() {});
+        var themes = new ArrayList<TerminalColorScheme>();
+        int total = schemePaths.size(), count = 0;
 
-            if ("dir".equals(type)) {
-                // Recurse into subdirectories
-                fetchDir(file.get("url").asText(), themes);
-            } else if (name.endsWith(".json")) {
-                try {
-                    String downloadUrl = file.has("download_url")
-                            ? file.get("download_url").asText()
-                            : RAW_BASE + name;
-                    var themeReq = HttpRequest.newBuilder(URI.create(downloadUrl)).GET().build();
-                    var themeResp = client.send(themeReq, HttpResponse.BodyHandlers.ofString());
-                    if (themeResp.statusCode() != 200) continue;
+        for (String path : schemePaths) {
+            count++;
+            if (count % 25 == 0) System.out.printf("    %d/%d themes...%n", count, total);
 
-                    var parsed = parseTerminalSexyJson(name.replace(".json", ""), themeResp.body());
-                    if (parsed != null) themes.add(parsed);
-                } catch (Exception e) {
-                    System.err.println("    WARN: Failed to parse " + name + ": " + e.getMessage());
-                }
+            try {
+                var themeReq = HttpRequest.newBuilder(safeUri(SCHEME_BASE + path + ".json")).GET().build();
+                var themeResp = client.send(themeReq, HttpResponse.BodyHandlers.ofString());
+                if (themeResp.statusCode() != 200) continue;
+
+                var scheme = parseScheme(path, themeResp.body());
+                if (scheme != null) themes.add(scheme);
+            } catch (Exception e) {
+                System.err.println("    WARN: Failed to parse " + path + ": " + e.getMessage());
             }
         }
+        System.out.printf("  Imported %d themes from terminal.sexy%n", themes.size());
+        return themes;
     }
 
-    /**
-     * Parse terminal.sexy JSON format.
-     * Expected format: { "color": ["#hex"x16], "foreground": "#hex", "background": "#hex" }
-     */
-    private TerminalColorScheme parseTerminalSexyJson(String name, String json) throws Exception {
+    private TerminalColorScheme parseScheme(String path, String json) throws Exception {
         var node = mapper.readTree(json);
 
-        // Try array-of-colors format
         JsonNode colors = node.get("color");
-        if (colors == null || !colors.isArray() || colors.size() < 16) {
-            // Try flat format with named keys
-            return parseNamedKeys(name, node);
-        }
+        if (colors == null || !colors.isArray() || colors.size() < 16) return null;
+
+        // Use the "name" field if present, otherwise derive from path
+        String name = node.has("name") && !node.get("name").asText().isBlank()
+                ? node.get("name").asText()
+                : prettifyPath(path);
 
         String fg = getColorOpt(node, "foreground");
         String bg = getColorOpt(node, "background");
-        if (fg == null) fg = colors.get(7).asText();
-        if (bg == null) bg = colors.get(0).asText();
+        if (fg == null) fg = colors.get(7).asText();  // white
+        if (bg == null) bg = colors.get(0).asText();   // black
 
         return TerminalColorScheme.builder(name)
                 .sourceName(name())
@@ -122,46 +110,29 @@ public class TerminalSexySource implements ThemeSource {
                 .build();
     }
 
-    private TerminalColorScheme parseNamedKeys(String name, JsonNode node) {
-        // Some terminal.sexy exports use named keys
-        try {
-            return TerminalColorScheme.builder(name)
-                    .sourceName(name())
-                    .sourceUrl(url())
-                    .foreground(getColor(node, "foreground"))
-                    .background(getColor(node, "background"))
-                    .ansi(0, getColor(node, "black"))
-                    .ansi(1, getColor(node, "red"))
-                    .ansi(2, getColor(node, "green"))
-                    .ansi(3, getColor(node, "yellow"))
-                    .ansi(4, getColor(node, "blue"))
-                    .ansi(5, getColor(node, "magenta"))
-                    .ansi(6, getColor(node, "cyan"))
-                    .ansi(7, getColor(node, "white"))
-                    .bright(0, getColor(node, "brightBlack"))
-                    .bright(1, getColor(node, "brightRed"))
-                    .bright(2, getColor(node, "brightGreen"))
-                    .bright(3, getColor(node, "brightYellow"))
-                    .bright(4, getColor(node, "brightBlue"))
-                    .bright(5, getColor(node, "brightMagenta"))
-                    .bright(6, getColor(node, "brightCyan"))
-                    .bright(7, getColor(node, "brightWhite"))
-                    .build();
-        } catch (Exception e) {
-            return null; // Skip unparseable formats
-        }
+    /** Turn "collection/monokai" or "xcolors.net/Baskerville - Count Von Count" into a readable name. */
+    private String prettifyPath(String path) {
+        // Take the last segment after /
+        int slash = path.lastIndexOf('/');
+        String base = slash >= 0 ? path.substring(slash + 1) : path;
+        // Replace dots and dashes with spaces for readability
+        return base.replace('.', ' ').replace('-', ' ').trim();
     }
 
-    private String getColor(JsonNode node, String key) {
-        var val = node.get(key);
-        if (val == null || val.isNull()) throw new IllegalArgumentException("Missing: " + key);
-        return val.asText();
+    /** Build a URI that handles spaces and non-ASCII in the path. */
+    private static URI safeUri(String raw) {
+        try {
+            var u = URI.create(raw.replace(" ", "%20"));
+            return new URI(u.getScheme(), u.getAuthority(), u.getPath(), u.getQuery(), u.getFragment());
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Bad URI: " + raw, e);
+        }
     }
 
     private String getColorOpt(JsonNode node, String key) {
         var val = node.get(key);
         if (val == null || val.isNull()) return null;
-        String text = val.asText();
+        String text = val.asText().trim();
         return ColorUtil.isValidColor(text) ? text : null;
     }
 }
