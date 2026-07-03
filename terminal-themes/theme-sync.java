@@ -2,7 +2,7 @@
 //JAVA 21
 //DEPS com.fasterxml.jackson.core:jackson-databind:2.18.2
 //DEPS com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.2
-//SOURCES src/dk/xam/themes/*.java
+//SOURCES ../src/dk/xam/themes/*.java
 //SOURCES src/dk/xam/themes/sync/*.java
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,7 +33,7 @@ class themesync {
 
     public static void main(String[] args) throws Exception {
         String filterSource = null;
-        String outputPath = "themes/builtin-themes.json";
+        String outputPath = "../themes/builtin-themes.json";
         boolean useCache = true;
         boolean clearCache = false;
         long maxAgeHours = 24;

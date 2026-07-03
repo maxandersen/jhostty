@@ -3,9 +3,9 @@
 //DEPS org.junit.jupiter:junit-jupiter:5.11.4
 //DEPS org.junit.platform:junit-platform-launcher:1.11.4
 //DEPS com.fasterxml.jackson.core:jackson-databind:2.18.2
-//SOURCES ../../../../src/dk/xam/themes/ColorUtil.java
-//SOURCES ../../../../src/dk/xam/themes/TerminalColorScheme.java
-//SOURCES ../../../../src/dk/xam/themes/ThemeRegistry.java
+//SOURCES ../../../../../src/dk/xam/themes/ColorUtil.java
+//SOURCES ../../../../../src/dk/xam/themes/TerminalColorScheme.java
+//SOURCES ../../../../../src/dk/xam/themes/ThemeRegistry.java
 //SOURCES ../../../../src/dk/xam/themes/sync/ThemeDeduplicator.java
 
 package dk.xam.themes;

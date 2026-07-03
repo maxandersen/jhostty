@@ -3,9 +3,9 @@
 //DEPS org.junit.jupiter:junit-jupiter:5.11.4
 //DEPS org.junit.platform:junit-platform-launcher:1.11.4
 //DEPS com.fasterxml.jackson.core:jackson-databind:2.18.2
-//SOURCES ../../../../src/dk/xam/themes/ColorUtil.java
-//SOURCES ../../../../src/dk/xam/themes/TerminalColorScheme.java
-//SOURCES ../../../../src/dk/xam/themes/ThemeRegistry.java
+//SOURCES ../../../../../src/dk/xam/themes/ColorUtil.java
+//SOURCES ../../../../../src/dk/xam/themes/TerminalColorScheme.java
+//SOURCES ../../../../../src/dk/xam/themes/ThemeRegistry.java
 
 package dk.xam.themes;
 
@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.ByteArrayInputStream;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.List;
 
 class ThemeRegistryTest {
@@ -39,21 +40,30 @@ class ThemeRegistryTest {
 
     private ThemeRegistry registry;
 
+    // Resolve the builtin-themes.json relative to this test's location
+    private static final Path THEMES_JSON = Path.of(System.getProperty("user.dir"))
+            .resolve("../themes/builtin-themes.json").normalize();
+
     @BeforeEach
     void setUp() {
         registry = ThemeRegistry.create();
     }
 
+    private void loadThemes() {
+        try { registry.loadFromFile(THEMES_JSON); }
+        catch (Exception e) { registry.loadBundled(); } // fallback if run from project root
+    }
+
     @Test
     void loadBundledThemes() {
-        registry.loadBundled();
+        loadThemes();
         assertTrue(registry.size() >= 3, "Should have at least 3 bundled themes, got " + registry.size());
         assertNotNull(registry.find("Dracula").orElse(null));
     }
 
     @Test
     void caseInsensitiveLookup() {
-        registry.loadBundled();
+        loadThemes();
         assertTrue(registry.find("dracula").isPresent());
         assertTrue(registry.find("DRACULA").isPresent());
         assertTrue(registry.find("Dracula").isPresent());
@@ -61,7 +71,7 @@ class ThemeRegistryTest {
 
     @Test
     void aliasLookup() {
-        registry.loadBundled();
+        loadThemes();
         var scheme = registry.find("catppuccin-mocha");
         assertTrue(scheme.isPresent(), "catppuccin-mocha alias should resolve");
         assertTrue(scheme.get().name().startsWith("Catppuccin Mocha"),
@@ -70,7 +80,7 @@ class ThemeRegistryTest {
 
     @Test
     void punctuationTolerantLookup() {
-        registry.loadBundled();
+        loadThemes();
         assertTrue(registry.find("catppuccin mocha").isPresent());
         assertTrue(registry.find("catppuccin_mocha").isPresent());
         assertTrue(registry.find("solarized dark").isPresent());
@@ -79,7 +89,7 @@ class ThemeRegistryTest {
 
     @Test
     void searchSchemes() {
-        registry.loadBundled();
+        loadThemes();
         var results = registry.searchSchemes("dark");
         assertFalse(results.isEmpty());
         assertTrue(results.stream().anyMatch(s -> s.name().equals("Solarized Dark")));
@@ -104,7 +114,7 @@ class ThemeRegistryTest {
 
     @Test
     void allNamesSorted() {
-        registry.loadBundled();
+        loadThemes();
         var names = registry.allNames();
         assertFalse(names.isEmpty());
         for (int i = 1; i < names.size(); i++) {
@@ -115,7 +125,7 @@ class ThemeRegistryTest {
 
     @Test
     void paletteReturns16Colors() {
-        registry.loadBundled();
+        loadThemes();
         var scheme = registry.find("Dracula").orElseThrow();
         assertEquals(16, scheme.palette().size());
         assertTrue(scheme.palette().stream().allMatch(c -> c.matches("#[0-9A-F]{6}")));
@@ -158,7 +168,7 @@ class ThemeRegistryTest {
 
     @Test
     void customThemeOverridesBuiltin() {
-        registry.loadBundled();
+        loadThemes();
         assertEquals("#F8F8F2", registry.find("Dracula").orElseThrow().foreground());
 
         var custom = TerminalColorScheme.builder("Dracula")
@@ -222,7 +232,7 @@ class ThemeRegistryTest {
 
     @Test
     void clearRegistry() {
-        registry.loadBundled();
+        loadThemes();
         assertTrue(registry.size() > 0);
         registry.clear();
         assertEquals(0, registry.size());

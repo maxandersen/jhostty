@@ -1322,17 +1322,59 @@ public class JHostty extends Application {
         var titleRow = new HBox(title, new Region() {{ HBox.setHgrow(this, Priority.ALWAYS); }}, closeBtn);
         titleRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
-        // --- Theme selector ---
+        // --- Theme selector (search + list with color preview) ---
         var themeLabel = new Label("Theme");
         themeLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
         var allThemes = Themes.all();
-        var themeCombo = new ComboBox<ThemeOption>();
-        themeCombo.getItems().addAll(allThemes);
-        themeCombo.setValue(allThemes.stream().filter(t -> t.label().equals(currentThemeName)).findFirst().orElse(allThemes.getFirst()));
-        themeCombo.setPrefWidth(190);
-        themeCombo.setStyle("-fx-font-size: 11;");
-        themeCombo.setOnAction(_ -> {
-            var selected = themeCombo.getValue();
+        var themeSearch = new TextField();
+        themeSearch.setPromptText("Search " + allThemes.size() + " themes...");
+        themeSearch.setStyle("-fx-font-size: 11;");
+        themeSearch.setPrefWidth(230);
+        var themeList = new ListView<ThemeOption>();
+        themeList.getItems().addAll(allThemes);
+        themeList.setPrefHeight(150);
+        themeList.setStyle("-fx-font-size: 11;");
+        themeList.setFocusTraversable(false);
+        // Color preview cell
+        themeList.setCellFactory(_ -> new javafx.scene.control.ListCell<>() {
+            private final HBox colorStrip = new HBox(1);
+            { colorStrip.setMinWidth(48); colorStrip.setMaxWidth(48); colorStrip.setPrefHeight(12); colorStrip.setAlignment(javafx.geometry.Pos.CENTER); }
+            @Override protected void updateItem(ThemeOption item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) { setText(null); setGraphic(null); return; }
+                setText(item.label());
+                colorStrip.getChildren().clear();
+                var t = item.theme();
+                var colors = new Color[] { t.background(), t.foreground(), t.palette().get(1), t.palette().get(2), t.palette().get(4), t.palette().get(5) };
+                for (var c : colors) {
+                    var swatch = new Region();
+                    swatch.setMinSize(7, 12); swatch.setMaxSize(7, 12);
+                    swatch.setStyle("-fx-background-color: " + colorToCss(c) + "; -fx-background-radius: 1;");
+                    colorStrip.getChildren().add(swatch);
+                }
+                setGraphic(colorStrip);
+                setContentDisplay(javafx.scene.control.ContentDisplay.RIGHT);
+                if (item.label().equals(currentThemeName)) setStyle("-fx-font-weight: bold;");
+                else setStyle("");
+            }
+        });
+        // Scroll to current theme
+        allThemes.stream().filter(t -> t.label().equals(currentThemeName)).findFirst()
+            .ifPresent(t -> { themeList.getSelectionModel().select(t); themeList.scrollTo(t); });
+        // Filter as user types
+        themeSearch.textProperty().addListener((_, _, text) -> {
+            themeList.getItems().clear();
+            if (text == null || text.isBlank()) {
+                themeList.getItems().addAll(allThemes);
+            } else {
+                var lower = text.toLowerCase();
+                allThemes.stream().filter(t -> t.label().toLowerCase().contains(lower))
+                    .forEach(t -> themeList.getItems().add(t));
+            }
+        });
+        // Apply on click/selection
+        themeList.setOnMouseClicked(_ -> {
+            var selected = themeList.getSelectionModel().getSelectedItem();
             if (selected != null && !selected.label().equals(currentThemeName)) {
                 currentThemeName = selected.label();
                 currentTheme = selected.theme();
@@ -1340,6 +1382,7 @@ public class JHostty extends Application {
                 saveState();
             }
         });
+        var themeBox = new VBox(4, themeSearch, themeList);
 
         // --- Zoom slider ---
         var zoomLabel = new Label("Zoom");
@@ -1364,7 +1407,7 @@ public class JHostty extends Application {
 
         var panel = new VBox(10,
             titleRow, sep1,
-            themeLabel, themeCombo,
+            themeLabel, themeBox,
             zoomLabel, zoomRow,
             pastelLabel, pastelRow,
             gutterLabel, gutterRow,
@@ -1376,8 +1419,8 @@ public class JHostty extends Application {
         );
         panel.setPadding(new javafx.geometry.Insets(12));
         panel.getStyleClass().add("jhostty-settings");
-        panel.setPrefWidth(260);
-        panel.setMinWidth(260);
+        panel.setPrefWidth(280);
+        panel.setMinWidth(280);
         closeBtn.setOnAction(_ -> { panel.setVisible(false); panel.setManaged(false); });
         return panel;
     }
@@ -1427,7 +1470,7 @@ public class JHostty extends Application {
             config.getOptionalValue("sidebar", Boolean.class).ifPresent(v -> sidebarVisible = v);
             config.getOptionalValue("sidebar-width", Double.class).ifPresent(v -> sidebarDividerPos = v);
             config.getOptionalValue("layout", String.class).filter(s -> !s.isBlank()).ifPresent(v -> savedLayout = v);
-            for (var t : Themes.all()) { if (t.label().equals(currentThemeName)) { currentTheme = t.theme(); break; } }
+            Themes.find(currentThemeName).ifPresent(t -> { currentThemeName = t.label(); currentTheme = t.theme(); });
             debug("config loaded: theme=" + currentThemeName + " font=" + currentFontFamily + " fontSize=" + baseFontSize + " zoom=" + currentZoom);
         } catch (Exception e) { System.err.println("[jhostty] failed to load config: " + e.getMessage()); }
     }

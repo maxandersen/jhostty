@@ -2,7 +2,7 @@
 //JAVA 21
 //DEPS org.junit.jupiter:junit-jupiter:5.11.4
 //DEPS org.junit.platform:junit-platform-launcher:1.11.4
-//SOURCES ../../../../src/dk/xam/themes/ColorUtil.java
+//SOURCES ../../../../../src/dk/xam/themes/ColorUtil.java
 
 package dk.xam.themes;
 
