@@ -1088,6 +1088,8 @@ public class JHostty extends Application {
                     .jhostty-content-split { -fx-background-color: %s; }
                     .jhostty-content-split > .split-pane-divider { -fx-background-color: %s; -fx-padding: 0 1 0 1; }
                     .jhostty-sidebar { -fx-background-color: %s; }
+                    .jhostty-sidebar .label { -fx-text-fill: %s; }
+                    .jhostty-sidebar .separator .line { -fx-border-color: %s; -fx-border-width: 0.5 0 0 0; }
                     .jhostty-sidebar .tree-cell { -fx-text-fill: %s; -fx-background-color: transparent; -fx-font-size: 12; -fx-padding: 3 8 3 4; }
                     .jhostty-sidebar .tree-cell:selected { -fx-background-color: %s; -fx-text-fill: %s; }
                     .jhostty-sidebar .tree-cell:empty { -fx-background-color: transparent; }
@@ -1127,6 +1129,7 @@ public class JHostty extends Application {
                         tabCloseCss, tabCloseHoverCss,
                         dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss,
                         dividerCss, borderCss, menuBgCss, fgCss, selCss, selText, fgCss,
+                        fgCss, sepCss,
                         // scrollbar
                         dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)",
                         dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)",
