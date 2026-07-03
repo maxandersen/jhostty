@@ -304,7 +304,7 @@ public class JHostty extends Application {
         });
 
         var toggleSidebarItem = new MenuItem("Toggle Sidebar");
-        toggleSidebarItem.setAccelerator(new KeyCodeCombination(KeyCode.BACK_SLASH, KeyCombination.SHORTCUT_DOWN));
+        toggleSidebarItem.setAccelerator(new KeyCodeCombination(KeyCode.SLASH, KeyCombination.SHORTCUT_DOWN));
         toggleSidebarItem.setOnAction(_ -> toggleSidebar());
 
         var animToggle = new CheckMenuItem("Animations");
@@ -364,7 +364,7 @@ public class JHostty extends Application {
         copy.setOnAction(_ -> view.copySelection());
         var paste = new MenuItem("Paste                     " + sc + "V");
         paste.setOnAction(_ -> view.pasteClipboard());
-        var toggleSidebar = new MenuItem("Toggle Sidebar       " + sc + "\\");
+        var toggleSidebar = new MenuItem("Toggle Sidebar       " + sc + "/");
         toggleSidebar.setOnAction(_ -> toggleSidebar());
         return new ContextMenu(
                 newWindowItem, newTabItem, splitH, splitV,
@@ -1727,7 +1727,7 @@ public class JHostty extends Application {
                 case T -> { newTabNext(tabs); e.consume(); }
                 case D -> { if (e.isShiftDown()) splitActive(Orientation.HORIZONTAL); else splitActive(Orientation.VERTICAL); e.consume(); }
                 case W -> { closeActive(tabs, stage); e.consume(); }
-                case BACK_SLASH -> { toggleSidebar(); e.consume(); }
+                case SLASH -> { toggleSidebar(); e.consume(); }
                 case EQUALS, PLUS, ADD -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); e.consume(); }
                 case MINUS, SUBTRACT -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); e.consume(); }
                 case DIGIT0, NUMPAD0 -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); e.consume(); }
