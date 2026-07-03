@@ -958,6 +958,7 @@ public class JHostty extends Application {
         try {
             Files.writeString(cssPath, """
                     .single-tab > .tab-header-area { -fx-max-height: 0; -fx-pref-height: 0; -fx-min-height: 0; visibility: hidden; }
+                    .tab-pane > .tab-header-area > .control-buttons-tab { visibility: hidden; -fx-padding: 0; -fx-max-width: 0; }
                     .tab-pane { -fx-background-color: %s; }
                     .tab-pane > .tab-content-area { -fx-background-color: %s; }
                     .tab-pane > .tab-header-area { -fx-background-color: %s; -fx-padding: 0; }
