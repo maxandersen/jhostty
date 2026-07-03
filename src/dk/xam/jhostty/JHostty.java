@@ -1349,7 +1349,7 @@ public class JHostty extends Application {
         themeList.getItems().addAll(allThemes);
         themeList.setPrefHeight(150);
         themeList.setStyle("-fx-font-size: 11;");
-        themeList.setFocusTraversable(false);
+
         // Color preview cell
         themeList.setCellFactory(_ -> new javafx.scene.control.ListCell<>() {
             private final HBox colorStrip = new HBox(1);
