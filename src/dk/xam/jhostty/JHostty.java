@@ -1690,11 +1690,10 @@ public class JHostty extends Application {
             }
         });
         scene.addEventFilter(ZoomEvent.ZOOM, e -> {
-            if (e.isShortcutDown()) {
-                var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
-                if (target == null) target = activeTerminal;
-                if (target != null) { zoomTerminal(target, e.getZoomFactor() > 1 ? 1 : -1); e.consume(); }
-            }
+            // Pinch-to-zoom works with or without modifier key
+            var target = terminalAt(tabs, e.getScreenX(), e.getScreenY());
+            if (target == null) target = activeTerminal;
+            if (target != null) { zoomTerminal(target, e.getZoomFactor() > 1 ? 1 : -1); e.consume(); }
         });
 
         if (!Double.isNaN(savedWindowX)) stage.setX(savedWindowX);
