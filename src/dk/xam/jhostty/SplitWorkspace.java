@@ -668,16 +668,15 @@ class SplitWorkspace extends Region {
 
                 // Wire DnD on header
                 final var leafRef = leaf;
-                header.setOnMousePressed(e -> {
-                    if (e.getClickCount() == 2) { focusedPane.set(leafRef); toggleZoom(); e.consume(); return; }
-                    startPaneDrag(leafRef, e); e.consume();
-                });
+                header.setOnMousePressed(e -> { startPaneDrag(leafRef, e); e.consume(); });
                 header.setOnMouseDragged(e -> { doPaneDrag(e); e.consume(); });
                 header.setOnMouseReleased(e -> { endPaneDrag(e); e.consume(); });
+                header.setOnMouseClicked(e -> {
+                    if (e.getClickCount() == 2) { focusedPane.set(leafRef); toggleZoom(); e.consume(); }
+                });
 
                 // Layout: header on top, content fills rest
-                // header added AFTER content so it's on top for mouse events
-                var paneNode = new AnchorPane(content, header);
+                var paneNode = new AnchorPane(header, content);
                 AnchorPane.setTopAnchor(header, 0.0);
                 AnchorPane.setLeftAnchor(header, 0.0);
                 AnchorPane.setRightAnchor(header, 0.0);
@@ -1145,7 +1144,6 @@ class SplitWorkspace extends Region {
         }
 
         // Perform drop
-        System.err.println("[SplitWorkspace] endPaneDrag: dragging=" + dragging + " dropTarget=" + dropTarget + " dropZone=" + dropZone + " source=" + dragSource.id());
         if (dragging && dropTarget != null && dropZone != null) {
             var destWs = dragTargetWorkspace != null ? dragTargetWorkspace : this;
             if (destWs == this) {
