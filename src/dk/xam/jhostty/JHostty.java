@@ -1822,7 +1822,7 @@ public class JHostty extends Application {
     static Stage newWindowEmpty() {
         var tabs = new TabPane();
         tabs.getStyleClass().add("jhostty-tabs");
-        tabs.setTabDragPolicy(TabPane.TabDragPolicy.REORDER);
+        tabs.setTabDragPolicy(TabPane.TabDragPolicy.FIXED);
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.ALL_TABS);
 
         // Equal-width tabs (exclude the "+" button from sizing)
