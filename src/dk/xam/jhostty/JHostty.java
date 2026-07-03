@@ -999,8 +999,7 @@ public class JHostty extends Application {
 
     /** Divider/gutter color — slightly offset from terminal bg. */
     static Color dividerColor(Color bg) {
-        var lum = bg.getRed() * 0.299 + bg.getGreen() * 0.587 + bg.getBlue() * 0.114;
-        return lum < 0.5 ? Color.web("#3a3a3a") : Color.web("#cccccc");
+        return Color.TRANSPARENT;
     }
 
     static String colorToCss(Color c) {
