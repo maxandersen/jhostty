@@ -1327,9 +1327,31 @@ public class JHostty extends Application {
             }
         });
 
+        // --- Zoom slider ---
+        var zoomLabel = new Label("Zoom");
+        zoomLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
+        var zoomSlider = safeSlider(8, 36, currentZoom);
+        zoomSlider.setPrefWidth(180);
+        var zoomValue = new Label(String.format("%.0fpt", zoomSlider.getValue()));
+        zoomValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
+        zoomSlider.valueProperty().addListener((_, _, v) -> {
+            var size = Math.round(v.doubleValue());
+            zoomValue.setText(size + "pt");
+            currentZoom = size;
+            forEachTerminal(tv -> {
+                tv.getProperties().put(ZOOM_KEY, (double) size);
+                tv.setFont(FontManager.resolveFont(currentFontFamily, size));
+            });
+            updateTitle();
+            saveState();
+        });
+        var zoomRow = new HBox(8, zoomSlider, zoomValue);
+        zoomRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
         var panel = new VBox(10,
             titleRow, sep1,
             themeLabel, themeCombo,
+            zoomLabel, zoomRow,
             pastelLabel, pastelRow,
             gutterLabel, gutterRow,
             radiusLabel, radiusRow,
