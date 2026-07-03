@@ -4,6 +4,7 @@
 //DEPS org.jetbrains.pty4j:pty4j:0.13.12
 //DEPS org.slf4j:slf4j-nop:2.0.13
 //DEPS io.smallrye.config:smallrye-config:3.12.4
+//SOURCES PklConfigSource.java
 //RUNTIME_OPTIONS --enable-native-access=ALL-UNNAMED --enable-native-access=javafx.graphics
 
 import java.lang.foreign.*;
@@ -939,15 +940,17 @@ public class jhostty extends Application {
     private static void loadConfig() {
         var stateFile = configDir.resolve("jhostty-state.properties");
         var userFile = configDir.resolve("jhostty.properties");
+        var pklFile = configDir.resolve("jhostty.pkl");
         var hasState = Files.isRegularFile(stateFile);
         var hasUser = Files.isRegularFile(userFile);
-        if (!hasState && !hasUser) {
+        var hasPkl = Files.isRegularFile(pklFile);
+        if (!hasState && !hasUser && !hasPkl) {
             debug("no config found in " + configDir);
             return;
         }
         try {
             var builder = new io.smallrye.config.SmallRyeConfigBuilder();
-            // State file at lower ordinal, user file at higher (wins)
+            // State file at lowest ordinal, user properties above it, pkl file wins (per-key) if present
             if (hasState) {
                 debug("loading state: " + stateFile);
                 builder.withSources(new io.smallrye.config.PropertiesConfigSource(stateFile.toUri().toURL(), 100));
@@ -955,6 +958,14 @@ public class jhostty extends Application {
             if (hasUser) {
                 debug("loading user config: " + userFile);
                 builder.withSources(new io.smallrye.config.PropertiesConfigSource(userFile.toUri().toURL(), 200));
+            }
+            if (hasPkl) {
+                try {
+                    debug("loading pkl config: " + pklFile);
+                    builder.withSources(new PklConfigSource("PklConfig[" + pklFile + "]", pklFile, 250));
+                } catch (IOException e) {
+                    System.err.println("[jhostty] failed to evaluate " + pklFile + ": " + e.getMessage());
+                }
             }
             var config = builder.build();
 

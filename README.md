@@ -158,6 +158,32 @@ font-size=16.0
 
 Use **View → Reload Config** to apply changes without restarting.
 
+### Pkl config (optional)
+
+If you'd rather write config in [Apple's Pkl](https://pkl-lang.org) — a typed,
+programmable config language — jhostty also loads:
+
+```
+~/.config/jhostty/jhostty.pkl
+```
+
+jhostty does **not** bundle the Pkl runtime. When `jhostty.pkl` exists, it
+shells out to the [`pkl` CLI](https://pkl-lang.org/main/current/pkl-cli) to
+render the file to `properties` and loads that output in memory, so install
+`pkl` and make sure it's on your `PATH` (or point the `PKL_EXE` environment
+variable at the executable). Values from `jhostty.pkl` win over
+`jhostty.properties` on a per-key basis; keys it doesn't set still fall
+through to `jhostty.properties` and then the saved state.
+
+```pkl
+// ~/.config/jhostty/jhostty.pkl
+theme = "Dracula"
+font = "JetBrains Mono"
+`font-size` = 16.0
+```
+
+(Pkl requires backticks around identifiers with hyphens, like `` `font-size` ``.)
+
 ## Font Recommendation
 
 For the best experience with nerd font glyphs (powerline symbols, git icons):
