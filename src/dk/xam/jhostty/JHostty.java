@@ -2378,9 +2378,9 @@ public class JHostty extends Application {
         searchField.setStyle("-fx-font-size: 15; -fx-background-color: rgba(255,255,255,0.08); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.15); -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 8 12;");
 
         var resultList = new ListView<PaletteItem>();
-        resultList.getItems().addAll(allItems.stream().limit(20).toList());
-        resultList.setPrefHeight(300);
-        resultList.setStyle("-fx-background-color: transparent;");
+        resultList.getItems().addAll(allItems);
+        resultList.setPrefHeight(350);
+        resultList.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
         resultList.setCellFactory(_ -> new javafx.scene.control.ListCell<>() {
             @Override protected void updateItem(PaletteItem item, boolean empty) {
                 super.updateItem(item, empty);
@@ -2396,7 +2396,11 @@ public class JHostty extends Application {
                 var row = new HBox(8, lbl, cat, spacer, sc2);
                 row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
                 setGraphic(row);
-                setStyle("-fx-background-color: transparent; -fx-padding: 4 8;");
+                if (isSelected()) {
+                    setStyle("-fx-background-color: rgba(255,255,255,0.12); -fx-background-radius: 6; -fx-padding: 4 8;");
+                } else {
+                    setStyle("-fx-background-color: transparent; -fx-padding: 4 8;");
+                }
             }
         });
 
@@ -2407,7 +2411,6 @@ public class JHostty extends Application {
             allItems.stream()
                 .filter(item -> lower.isEmpty() || item.label().toLowerCase().contains(lower)
                     || item.category().toLowerCase().contains(lower))
-                .limit(20)
                 .forEach(item -> resultList.getItems().add(item));
             if (!resultList.getItems().isEmpty()) resultList.getSelectionModel().select(0);
         });
@@ -2448,8 +2451,8 @@ public class JHostty extends Application {
 
         var paletteBox = new VBox(8, searchField, resultList);
         paletteBox.setStyle("-fx-background-color: rgba(30,30,30,0.95); -fx-background-radius: 10; -fx-border-color: rgba(255,255,255,0.12); -fx-border-radius: 10; -fx-padding: 12; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.6), 20, 0, 0, 8);");
-        paletteBox.setMaxWidth(500);
-        paletteBox.setMaxHeight(400);
+        paletteBox.setMaxWidth(550);
+        paletteBox.setMaxHeight(500);
 
         // Arrow/Enter/Escape on the list itself
         resultList.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
