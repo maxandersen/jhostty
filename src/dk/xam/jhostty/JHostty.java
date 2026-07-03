@@ -2595,7 +2595,11 @@ public class JHostty extends Application {
                 view.removeEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, filter);
                 view.getProperties().remove(READONLY_KEY);
             }
-            view.setStyle("");
+            // Remove pill
+            var pill = view.getProperties().remove("jhostty.readOnlyPill");
+            if (pill instanceof Node pillNode) {
+                if (pillNode.getParent() instanceof javafx.scene.layout.Pane p) p.getChildren().remove(pillNode);
+            }
             debug("read-only OFF for " + view.getTitle());
         } else {
             readOnlyTerminals.add(view);
@@ -2619,16 +2623,31 @@ public class JHostty extends Application {
             view.addEventFilter(KeyEvent.KEY_PRESSED, filter);
             view.addEventFilter(KeyEvent.KEY_TYPED, filter);
             view.getProperties().put(READONLY_KEY, filter);
-            view.setStyle("-fx-opacity: 0.85;");
-            debug("read-only ON for " + view.getTitle());
-        }
-        // Update pane header to show read-only indicator
-        var ws = findWorkspace(view);
-        if (ws != null) {
-            var leaf = ws.findLeafByContent(view);
-            if (leaf != null && readOnlyTerminals.contains(view)) {
-                leaf.setTitle("\uD83D\uDD12 " + (view.getTitle() != null ? view.getTitle() : "Terminal"));
+            // Add orange pill overlay
+            var pill = new Label("READ-ONLY");
+            pill.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-size: 10; -fx-font-weight: bold; -fx-padding: 2 8; -fx-background-radius: 10;");
+            pill.setMouseTransparent(true);
+            pill.setManaged(false);
+            view.getProperties().put("jhostty.readOnlyPill", pill);
+            // Position pill in top-right of the pane
+            var ws = findWorkspace(view);
+            if (ws != null) {
+                var leaf = ws.findLeafByContent(view);
+                if (leaf != null) {
+                    var wrapper = ws.getPaneWrapper(leaf);
+                    if (wrapper instanceof javafx.scene.layout.Pane p) {
+                        p.getChildren().add(pill);
+                        pill.applyCss();
+                        pill.autosize();
+                        // Reposition on layout
+                        p.layoutBoundsProperty().addListener((_, _, b) -> {
+                            pill.relocate(b.getWidth() - pill.prefWidth(-1) - 8, 4);
+                        });
+                        Platform.runLater(() -> pill.relocate(p.getWidth() - pill.prefWidth(-1) - 8, 4));
+                    }
+                }
             }
+            debug("read-only ON for " + view.getTitle());
         }
     }
 

@@ -369,6 +369,10 @@ class SplitWorkspace extends Region {
     }
 
     /** Find a leaf by content node. */
+    public Region getPaneWrapper(LeafPane leaf) {
+        return paneWrappers.get(leaf.id());
+    }
+
     public LeafPane findLeafByContent(Node content) {
         for (var leaf : leafIndex.values()) {
             if (leaf.content() == content) return leaf;
