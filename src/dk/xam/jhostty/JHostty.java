@@ -473,8 +473,6 @@ public class JHostty extends Application {
         titleLbl.setMouseTransparent(true);
         // Keep graphic title in sync with tab text property
         tab.textProperty().addListener((_, _, text) -> titleLbl.setText(text != null && !text.isBlank() ? text : "Terminal"));
-        var spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
         var addBtn = new Label("+");
         addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 0 2;");
         addBtn.setOnMouseEntered(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.8); -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 0 2;"));
@@ -493,8 +491,13 @@ public class JHostty extends Application {
             }
             e.consume();
         });
-        var graphic = new HBox(4, titleLbl, spacer, addBtn, closeBtn);
-        graphic.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        var buttons = new HBox(2, addBtn, closeBtn);
+        buttons.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
+        var graphic = new BorderPane();
+        graphic.setCenter(titleLbl);
+        graphic.setRight(buttons);
+        BorderPane.setAlignment(titleLbl, javafx.geometry.Pos.CENTER);
+        BorderPane.setAlignment(buttons, javafx.geometry.Pos.CENTER_RIGHT);
         graphic.setMinWidth(0);
         tab.setGraphic(graphic);
     }
