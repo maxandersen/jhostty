@@ -1502,10 +1502,10 @@ public class JHostty extends Application {
     static void captureSplitNode(StringBuilder sb, SplitNode node) {
         if (node instanceof LeafPane leaf) {
             if (leaf.content() instanceof TerminalView v) {
-                sb.append("L[").append(LayoutCodec.encodeCommand(getTerminalCommand(v))).append(']');
-            } else sb.append("L[]");
+                sb.append("T[").append(LayoutCodec.encodeCommand(getTerminalCommand(v))).append(']');
+            } else sb.append("T[]");
         } else if (node instanceof Split split) {
-            var orient = split.orientation() == Orientation.HORIZONTAL ? "H" : "V";
+            var orient = split.orientation() == Orientation.HORIZONTAL ? "C" : "R";
             sb.append(orient).append('{');
             for (int i = 0; i < split.children().size(); i++) {
                 if (i > 0) sb.append(',');
@@ -1535,7 +1535,8 @@ public class JHostty extends Application {
         if (desc.isEmpty()) { newTab(tabPane); return; }
         // New format: L[cmd], H{0.500:L[cmd],0.500:L[cmd]}, V{...}
         // Legacy format: 1[cmd], H3[cmd|cmd|cmd]
-        if (desc.startsWith("L[") || desc.startsWith("H{") || desc.startsWith("V{")) {
+        if (desc.startsWith("T[") || desc.startsWith("C{") || desc.startsWith("R{") ||
+            desc.startsWith("L[") || desc.startsWith("H{") || desc.startsWith("V{")) {
             var tree = parseSplitNode(desc, new int[]{0});
             if (tree == null) { newTab(tabPane); return; }
             var workspace = buildWorkspaceFromTree(tree);
@@ -1563,9 +1564,9 @@ public class JHostty extends Application {
     static SplitNode parseSplitNode(String s, int[] pos) {
         if (pos[0] >= s.length()) return null;
         char c = s.charAt(pos[0]);
-        if (c == 'L') {
-            // Leaf: L[command]
-            pos[0] += 2; // skip "L["
+        if (c == 'T' || c == 'L') {
+            // Terminal: T[command] (legacy: L[command])
+            pos[0] += 2; // skip "T[" or "L["
             int end = s.indexOf(']', pos[0]);
             if (end < 0) return null;
             var cmdStr = s.substring(pos[0], end);
@@ -1574,10 +1575,10 @@ public class JHostty extends Application {
             var view = createTerminalClean(cmd);
             if (view == null) return null;
             return new LeafPane(PaneId.next(), view, null);
-        } else if (c == 'H' || c == 'V') {
-            // Split: H{weight:node,weight:node,...} or V{...}
-            var orient = c == 'H' ? Orientation.HORIZONTAL : Orientation.VERTICAL;
-            pos[0] += 2; // skip "H{" or "V{"
+        } else if (c == 'C' || c == 'R' || c == 'H' || c == 'V') {
+            // Column: C{...}, Row: R{...} (legacy: H{...}, V{...})
+            var orient = (c == 'C' || c == 'H') ? Orientation.HORIZONTAL : Orientation.VERTICAL;
+            pos[0] += 2; // skip "C{" or "R{"
             var children = new ArrayList<SplitNode>();
             var weights = new ArrayList<Double>();
             while (pos[0] < s.length() && s.charAt(pos[0]) != '}') {
