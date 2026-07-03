@@ -75,6 +75,7 @@ public class JHostty extends Application {
     static boolean shuttingDown = false;
     static String savedLayout = null;
     static final Map<Stage, TreeView<SidebarItem>> sidebarsByWindow = new ConcurrentHashMap<>();
+    static final Map<Stage, Node> sidebarPanelsByWindow = new ConcurrentHashMap<>();
     static boolean sidebarRebuildScheduled = false;
 
     // zmx
@@ -573,10 +574,10 @@ public class JHostty extends Application {
         for (var w : windows) {
             var bp = getRootPane(w);
             if (bp != null && bp.getCenter() instanceof SplitPane sp) {
-                var sidebar = sidebarsByWindow.get(w);
-                if (sidebar == null) continue;
-                if (sidebarVisible) showSidebarIn(sp, sidebar);
-                else hideSidebarIn(sp, sidebar);
+                var panel = sidebarPanelsByWindow.get(w);
+                if (panel == null) continue;
+                if (sidebarVisible) showSidebarIn(sp, panel);
+                else hideSidebarIn(sp, panel);
             }
         }
         if (sidebarVisible) rebuildAllSidebars();
@@ -610,17 +611,17 @@ public class JHostty extends Application {
         return null;
     }
 
-    static void showSidebarIn(SplitPane sp, TreeView<SidebarItem> sidebar) {
-        if (!sp.getItems().contains(sidebar)) {
-            sp.getItems().addFirst(sidebar);
+    static void showSidebarIn(SplitPane sp, Node sidebarPanel) {
+        if (!sp.getItems().contains(sidebarPanel)) {
+            sp.getItems().addFirst(sidebarPanel);
             Platform.runLater(() -> sp.setDividerPositions(sidebarDividerPos));
         }
     }
 
-    static void hideSidebarIn(SplitPane sp, TreeView<SidebarItem> sidebar) {
-        if (sp.getItems().contains(sidebar)) {
+    static void hideSidebarIn(SplitPane sp, Node sidebarPanel) {
+        if (sp.getItems().contains(sidebarPanel)) {
             if (!sp.getDividers().isEmpty()) sidebarDividerPos = sp.getDividerPositions()[0];
-            sp.getItems().remove(sidebar);
+            sp.getItems().remove(sidebarPanel);
         }
     }
 
@@ -1791,11 +1792,27 @@ public class JHostty extends Application {
         var menuBar = createMenuBar(tabs);
         if (IS_MAC) { menuBar.setUseSystemMenuBar(true); menuBar.setMaxHeight(0); menuBar.setPrefHeight(0); menuBar.setMinHeight(0); }
 
-        var sidebar = new TreeView<SidebarItem>();
-        sidebar.setShowRoot(false);
+        var sidebarTree = new TreeView<SidebarItem>();
+        sidebarTree.setShowRoot(false);
+        sidebarTree.getStyleClass().add("jhostty-sidebar");
+
+        var sidebarTitle = new Label("Terminals");
+        sidebarTitle.setStyle("-fx-font-size: 12; -fx-font-weight: bold; -fx-padding: 6 8;");
+        var sidebarClose = new Label("\u2715");
+        sidebarClose.setStyle("-fx-font-size: 11; -fx-cursor: hand; -fx-padding: 6 8; -fx-text-fill: rgba(255,255,255,0.4);");
+        sidebarClose.setOnMouseEntered(_ -> sidebarClose.setStyle("-fx-font-size: 11; -fx-cursor: hand; -fx-padding: 6 8; -fx-text-fill: rgba(255,255,255,0.9);"));
+        sidebarClose.setOnMouseExited(_ -> sidebarClose.setStyle("-fx-font-size: 11; -fx-cursor: hand; -fx-padding: 6 8; -fx-text-fill: rgba(255,255,255,0.4);"));
+        sidebarClose.setOnMouseClicked(_ -> toggleSidebar());
+        var sidebarSpacer = new Region();
+        HBox.setHgrow(sidebarSpacer, Priority.ALWAYS);
+        var sidebarHeader = new HBox(sidebarTitle, sidebarSpacer, sidebarClose);
+        sidebarHeader.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        sidebarHeader.getStyleClass().add("jhostty-sidebar");
+        VBox.setVgrow(sidebarTree, Priority.ALWAYS);
+        var sidebar = new VBox(sidebarHeader, sidebarTree);
         sidebar.getStyleClass().add("jhostty-sidebar");
         sidebar.setMinWidth(100);
-        sidebar.setCellFactory(_ -> new TreeCell<>() {
+        sidebarTree.setCellFactory(_ -> new TreeCell<>() {
             private final Label icon = new Label();
             { icon.setStyle("-fx-font-size: 11; -fx-padding: 0 4 0 0;"); }
             @Override protected void updateItem(SidebarItem item, boolean empty) {
@@ -1816,9 +1833,9 @@ public class JHostty extends Application {
                 else setStyle(null);
             }
         });
-        sidebar.setOnMouseClicked(e -> {
+        sidebarTree.setOnMouseClicked(e -> {
             if (e.getClickCount() < 2) return;
-            var sel = sidebar.getSelectionModel().getSelectedItem();
+            var sel = sidebarTree.getSelectionModel().getSelectedItem();
             if (sel == null) return;
             switch (sel.getValue()) {
                 case SidebarItem.TerminalItem ti -> {
@@ -1929,7 +1946,7 @@ public class JHostty extends Application {
         });
         stage.setOnHidden(_ -> {
             windows.remove(stage); windowMenus.removeIf(m -> m.getParentMenu() == null && m.getParentPopup() == null);
-            sidebarsByWindow.remove(stage); rebuildWindowMenus(); rebuildAllSidebars();
+            sidebarsByWindow.remove(stage); sidebarPanelsByWindow.remove(stage); rebuildWindowMenus(); rebuildAllSidebars();
             if (windows.isEmpty()) Platform.exit();
         });
 
@@ -2000,7 +2017,8 @@ public class JHostty extends Application {
         if (!Double.isNaN(savedWindowX)) stage.setX(savedWindowX);
         if (!Double.isNaN(savedWindowY)) stage.setY(savedWindowY);
         windows.add(stage);
-        sidebarsByWindow.put(stage, sidebar);
+        sidebarsByWindow.put(stage, sidebarTree);
+        sidebarPanelsByWindow.put(stage, sidebar);
         stage.show();
         if (sidebarVisible) { showSidebarIn(contentSplit, sidebar); rebuildAllSidebars(); }
         rebuildWindowMenus();
