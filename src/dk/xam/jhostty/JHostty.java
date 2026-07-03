@@ -552,14 +552,76 @@ public class JHostty extends Application {
                 });
                 tabHeader.setOnMouseReleased(e -> {
                     if (tabDragging[0] && activeTabDragGhost != null) {
-                        activeTabDragGhost.close(); activeTabDragGhost = null; activeTabDragGhost = null;
-                        tearOffTab(tab, tabPane, e.getScreenX(), e.getScreenY());
+                        activeTabDragGhost.close(); activeTabDragGhost = null;
+                        // Check if over another window's tab bar
+                        var targetTabs = findTabPaneAtScreen(e.getScreenX(), e.getScreenY(), tabPane);
+                        if (targetTabs != null) {
+                            moveTabTo(tab, tabPane, targetTabs, e.getScreenX());
+                        } else {
+                            tearOffTab(tab, tabPane, e.getScreenX(), e.getScreenY());
+                        }
                     }
                     tabDragging[0] = false;
                 });
             }
             return;
         }
+    }
+
+    /** Find a TabPane (other than exclude) whose tab-header-area contains the screen point. */
+    static TabPane findTabPaneAtScreen(double screenX, double screenY, TabPane exclude) {
+        for (var w : windows) {
+            var tp = getTabPane(w);
+            if (tp == null || tp == exclude) continue;
+            var header = tp.lookup(".tab-header-area");
+            if (header == null) continue;
+            var local = header.screenToLocal(screenX, screenY);
+            if (local != null && header.getBoundsInLocal().contains(local)) return tp;
+        }
+        return null;
+    }
+
+    /** Move a tab from one TabPane to another, inserting at the appropriate position. */
+    static void moveTabTo(Tab tab, TabPane src, TabPane dest, double screenX) {
+        var content = tab.getContent();
+        src.getTabs().remove(tab);
+        if (src.getTabs().isEmpty()) {
+            var stg = findStage(src);
+            if (stg != null) stg.close();
+        }
+        // Find insert position based on screenX
+        int insertIdx = dest.getTabs().size();
+        var allHeaders = dest.lookupAll(".tab");
+        int i = 0;
+        for (var th : allHeaders) {
+            var bounds = th.localToScreen(th.getBoundsInLocal());
+            if (bounds != null && screenX < bounds.getMinX() + bounds.getWidth() / 2) {
+                insertIdx = i;
+                break;
+            }
+            i++;
+        }
+        var newTab = new Tab();
+        newTab.setText(tab.getText());
+        newTab.setContent(content);
+        setupTabGraphic(newTab, dest);
+        if (content instanceof SplitWorkspace ws) configureWorkspace(ws, dest);
+        dest.getTabs().add(insertIdx, newTab);
+        dest.getSelectionModel().select(newTab);
+        if (content instanceof SplitWorkspace ws) {
+            ws.focusedPaneProperty().addListener((_, _, pane) -> {
+                if (pane != null && pane.content() instanceof TerminalView tv) {
+                    activeTerminal = tv;
+                    newTab.textProperty().unbind();
+                    newTab.textProperty().bind(tv.titleProperty());
+                    var stg = findStageFor(tv);
+                    if (stg != null) { stg.setTitle(tv.getTitle() != null ? tv.getTitle() : "jhostty"); rebuildWindowMenus(); }
+                }
+            });
+        }
+        // Focus the destination window
+        var destStage = findStage(dest);
+        if (destStage != null) { destStage.toFront(); destStage.requestFocus(); }
     }
 
     static void tearOffTab(Tab tab, TabPane srcTabPane, double screenX, double screenY) {
