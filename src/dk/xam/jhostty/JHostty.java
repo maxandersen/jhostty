@@ -569,14 +569,16 @@ public class JHostty extends Application {
     }
 
     /** Find a TabPane (other than exclude) whose tab-header-area contains the screen point. */
+    /** Find a TabPane (other than exclude) whose window contains the screen point. */
     static TabPane findTabPaneAtScreen(double screenX, double screenY, TabPane exclude) {
         for (var w : windows) {
             var tp = getTabPane(w);
             if (tp == null || tp == exclude) continue;
-            var header = tp.lookup(".tab-header-area");
-            if (header == null) continue;
-            var local = header.screenToLocal(screenX, screenY);
-            if (local != null && header.getBoundsInLocal().contains(local)) return tp;
+            // Check if cursor is over this window at all
+            if (screenX >= w.getX() && screenX <= w.getX() + w.getWidth()
+                    && screenY >= w.getY() && screenY <= w.getY() + w.getHeight()) {
+                return tp;
+            }
         }
         return null;
     }
