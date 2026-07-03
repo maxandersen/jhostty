@@ -62,6 +62,8 @@ public class JHostty extends Application {
     static String detectedFontFamily;
     static List<String> detectedShellCommand;
     static TerminalView activeTerminal;
+    static final Set<TerminalView> readOnlyTerminals = ConcurrentHashMap.newKeySet();
+    private static final String READONLY_KEY = "jhostty.readOnly";
     static Path cwd;
     static List<String> shellCommand;
     static Path cssPath;
@@ -381,11 +383,13 @@ public class JHostty extends Application {
         paste.setOnAction(_ -> view.pasteClipboard());
         var toggleSidebar = new MenuItem("Toggle Sidebar       " + sc + "/");
         toggleSidebar.setOnAction(_ -> toggleSidebar());
+        var readOnlyItem = new MenuItem("Toggle Read-Only");
+        readOnlyItem.setOnAction(_ -> toggleReadOnly());
         return new ContextMenu(
                 newWindowItem, newTabItem, splitH, splitV,
                 new SeparatorMenuItem(), zoomIn, zoomOut, zoomReset,
                 new SeparatorMenuItem(), copy, paste,
-                new SeparatorMenuItem(), toggleSidebar);
+                new SeparatorMenuItem(), readOnlyItem, toggleSidebar);
     }
 
     // --- Tab Management ---
@@ -2364,6 +2368,7 @@ public class JHostty extends Application {
         commands.add(new PaletteItem("Reset Zoom", sc + "0", "View", () -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); }));
         commands.add(new PaletteItem("Zoom/Unzoom Pane", sc + sh + "Enter", "Pane", () -> { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); }));
         commands.add(new PaletteItem("Focus Next Pane", sc + "Tab", "Pane", () -> { var ws = activeWorkspace(); if (ws != null) ws.focusNext(); }));
+        commands.add(new PaletteItem("Toggle Read-Only", "", "Pane", () -> toggleReadOnly()));
         commands.add(new PaletteItem("Help", sc + sh + "/", "Help", () -> showHelp()));
         commands.add(new PaletteItem("Reload Config", "", "View", () -> { loadConfig(); applyThemeToAll(); }));
 
@@ -2572,6 +2577,63 @@ public class JHostty extends Application {
             tabPane.getTabs().add(tab);
             tabPane.getSelectionModel().select(tab);
         } catch (IOException _) {}
+    }
+
+    // --- Read-Only Mode ---
+
+    static void toggleReadOnly() {
+        if (activeTerminal == null) return;
+        var view = activeTerminal;
+        if (readOnlyTerminals.contains(view)) {
+            readOnlyTerminals.remove(view);
+            // Remove the filter
+            var filter = (javafx.event.EventHandler<javafx.scene.input.InputEvent>) view.getProperties().get(READONLY_KEY);
+            if (filter != null) {
+                view.removeEventFilter(KeyEvent.KEY_PRESSED, filter);
+                view.removeEventFilter(KeyEvent.KEY_TYPED, filter);
+                view.removeEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, filter);
+                view.removeEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, filter);
+                view.getProperties().remove(READONLY_KEY);
+            }
+            view.setStyle("");
+            debug("read-only OFF for " + view.getTitle());
+        } else {
+            readOnlyTerminals.add(view);
+            // Add filter that blocks input but allows copy shortcuts and scroll
+            javafx.event.EventHandler<javafx.scene.input.InputEvent> filter = e -> {
+                if (e instanceof KeyEvent ke) {
+                    // Allow Cmd+C (copy), Cmd+P (palette), Cmd+W (close), etc.
+                    if (ke.isShortcutDown()) return;
+                    // Allow arrow keys, Page Up/Down, Home/End for scrolling
+                    switch (ke.getCode()) {
+                        case UP, DOWN, LEFT, RIGHT, PAGE_UP, PAGE_DOWN, HOME, END -> { return; }
+                        default -> {}
+                    }
+                    e.consume();
+                } else if (e instanceof javafx.scene.input.MouseEvent me) {
+                    // Allow right-click (context menu) but block left-click input
+                    if (me.getButton() == javafx.scene.input.MouseButton.SECONDARY) return;
+                    // Allow selection drag (don't consume PRESSED for text selection)
+                }
+            };
+            view.addEventFilter(KeyEvent.KEY_PRESSED, filter);
+            view.addEventFilter(KeyEvent.KEY_TYPED, filter);
+            view.getProperties().put(READONLY_KEY, filter);
+            view.setStyle("-fx-opacity: 0.85;");
+            debug("read-only ON for " + view.getTitle());
+        }
+        // Update pane header to show read-only indicator
+        var ws = findWorkspace(view);
+        if (ws != null) {
+            var leaf = ws.findLeafByContent(view);
+            if (leaf != null && readOnlyTerminals.contains(view)) {
+                leaf.setTitle("\uD83D\uDD12 " + (view.getTitle() != null ? view.getTitle() : "Terminal"));
+            }
+        }
+    }
+
+    static boolean isReadOnly(TerminalView view) {
+        return readOnlyTerminals.contains(view);
     }
 
     static void closeOtherTabs(TabPane tabs) {
