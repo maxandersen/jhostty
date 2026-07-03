@@ -389,8 +389,23 @@ public class JHostty extends Application {
             var stg = tp != null ? findStage(tp) : null;
             var t = findTab(workspace);
             if (t != null && tp != null) tabPane.getTabs().remove(t);
-            if (tp != null && tp.getTabs().stream().noneMatch(tab -> tab.getContent() != null) && stg != null) stg.close();
+            if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
         }));
+        workspace.setOnNewTab(() -> newTabNext(tabPane));
+        workspace.setOnClosePane(leaf -> {
+            var content = leaf.content();
+            if (content instanceof TerminalView tv) {
+                if (closingTerminals.add(tv)) Thread.ofVirtual().name("jhostty-close").start(tv::close);
+            }
+            workspace.closePane(leaf);
+            if (workspace.allLeaves().isEmpty()) {
+                var tp2 = findTabPane(workspace);
+                var stg2 = tp2 != null ? findStage(tp2) : null;
+                var t2 = findTab(workspace);
+                if (t2 != null && tp2 != null) tp2.getTabs().remove(t2);
+                if (tp2 != null && tp2.getTabs().isEmpty() && stg2 != null) stg2.close();
+            }
+        });
         // Track active terminal from workspace focus
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
@@ -437,6 +452,21 @@ public class JHostty extends Application {
             if (t != null && tp != null) tp.getTabs().remove(t);
             if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
         }));
+        workspace.setOnNewTab(() -> newTabNext(tabPane));
+        workspace.setOnClosePane(leaf -> {
+            var content = leaf.content();
+            if (content instanceof TerminalView tv) {
+                if (closingTerminals.add(tv)) Thread.ofVirtual().name("jhostty-close").start(tv::close);
+            }
+            workspace.closePane(leaf);
+            if (workspace.allLeaves().isEmpty()) {
+                var tp2 = findTabPane(workspace);
+                var stg2 = tp2 != null ? findStage(tp2) : null;
+                var t2 = findTab(workspace);
+                if (t2 != null && tp2 != null) tp2.getTabs().remove(t2);
+                if (tp2 != null && tp2.getTabs().isEmpty() && stg2 != null) stg2.close();
+            }
+        });
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
                 activeTerminal = tv;
@@ -1626,10 +1656,7 @@ public class JHostty extends Application {
         HBox.setHgrow(rightSpacer, Priority.ALWAYS);
         rightSpacer.setMouseTransparent(true);
 
-        var addTabBtn = toolBtn("+", "New Tab", () -> newTabNext(tabs));
-        var closeTabBtn = toolBtn("\u2715", "Close Tab", () -> closeActive(tabs, findStage(tabs)));
-
-        var titleBar = new HBox(4, trafficSpacer, leftSpacer, titleLabel, rightSpacer, toolbar, addTabBtn, closeTabBtn);
+        var titleBar = new HBox(4, trafficSpacer, leftSpacer, titleLabel, rightSpacer, toolbar);
         titleBar.setAlignment(javafx.geometry.Pos.CENTER);
         titleBar.setPadding(new javafx.geometry.Insets(0, 4, 0, 4));
         titleBar.setStyle("-fx-background-color: transparent;");
@@ -1813,8 +1840,23 @@ public class JHostty extends Application {
             var stg = tp != null ? findStage(tp) : null;
             var t = findTab(workspace);
             if (t != null && tp != null) tabPane.getTabs().remove(t);
-            if (tp != null && tp.getTabs().stream().noneMatch(tab -> tab.getContent() != null) && stg != null) stg.close();
+            if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
         }));
+        workspace.setOnNewTab(() -> newTabNext(tabPane));
+        workspace.setOnClosePane(leaf -> {
+            var content = leaf.content();
+            if (content instanceof TerminalView tv) {
+                if (closingTerminals.add(tv)) Thread.ofVirtual().name("jhostty-close").start(tv::close);
+            }
+            workspace.closePane(leaf);
+            if (workspace.allLeaves().isEmpty()) {
+                var tp2 = findTabPane(workspace);
+                var stg2 = tp2 != null ? findStage(tp2) : null;
+                var t2 = findTab(workspace);
+                if (t2 != null && tp2 != null) tp2.getTabs().remove(t2);
+                if (tp2 != null && tp2.getTabs().isEmpty() && stg2 != null) stg2.close();
+            }
+        });
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
                 activeTerminal = tv;

@@ -222,6 +222,10 @@ class SplitWorkspace extends Region {
 
     public void setContentFactory(Supplier<Node> factory) { this.contentFactory = factory; }
     public void setOnEmpty(Runnable handler) { this.onEmpty = handler; }
+    private Runnable onNewTab;
+    public void setOnNewTab(Runnable handler) { this.onNewTab = handler; }
+    private java.util.function.Consumer<LeafPane> onClosePane;
+    public void setOnClosePane(java.util.function.Consumer<LeafPane> handler) { this.onClosePane = handler; }
     public Supplier<Node> getContentFactory() { return contentFactory; }
 
     public ObjectProperty<LeafPane> focusedPaneProperty() { return focusedPane; }
@@ -724,12 +728,23 @@ class SplitWorkspace extends Region {
                 shortcutLabel.setStyle("-fx-text-fill: rgba(255,255,255,0.25); -fx-font-size: 10;");
                 shortcutLabel.setMouseTransparent(true);
                 shortcutLabels.put(leaf.id(), shortcutLabel);
+                var addBtn = new javafx.scene.control.Label("+");
+                addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 0 2;");
+                addBtn.setOnMouseEntered(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.7); -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 0 2;"));
+                addBtn.setOnMouseExited(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 0 2;"));
+                final var leafForBtn = leaf;
+                addBtn.setOnMouseClicked(e -> { if (onNewTab != null) onNewTab.run(); e.consume(); });
+                var closeBtn = new javafx.scene.control.Label("\u2715");
+                closeBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 11; -fx-cursor: hand; -fx-padding: 0 2;");
+                closeBtn.setOnMouseEntered(_ -> closeBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.7); -fx-font-size: 11; -fx-cursor: hand; -fx-padding: 0 2;"));
+                closeBtn.setOnMouseExited(_ -> closeBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 11; -fx-cursor: hand; -fx-padding: 0 2;"));
+                closeBtn.setOnMouseClicked(e -> { if (onClosePane != null) onClosePane.accept(leafForBtn); e.consume(); });
                 var grip = new javafx.scene.control.Label("\u2261"); // ≡
                 grip.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 13;");
                 grip.setMouseTransparent(true);
                 var headerSpacer = new Region();
                 HBox.setHgrow(headerSpacer, Priority.ALWAYS);
-                var header = new HBox(4, titleLabel, headerSpacer, shortcutLabel, grip);
+                var header = new HBox(4, titleLabel, headerSpacer, shortcutLabel, addBtn, closeBtn, grip);
                 header.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
                 header.setPadding(new Insets(0, 6, 0, 6));
                 header.setPrefHeight(HEADER_H);
