@@ -391,21 +391,6 @@ public class JHostty extends Application {
             if (t != null && tp != null) tabPane.getTabs().remove(t);
             if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
         }));
-        workspace.setOnNewTab(() -> newTabNext(tabPane));
-        workspace.setOnClosePane(leaf -> {
-            var content = leaf.content();
-            if (content instanceof TerminalView tv) {
-                if (closingTerminals.add(tv)) Thread.ofVirtual().name("jhostty-close").start(tv::close);
-            }
-            workspace.closePane(leaf);
-            if (workspace.allLeaves().isEmpty()) {
-                var tp2 = findTabPane(workspace);
-                var stg2 = tp2 != null ? findStage(tp2) : null;
-                var t2 = findTab(workspace);
-                if (t2 != null && tp2 != null) tp2.getTabs().remove(t2);
-                if (tp2 != null && tp2.getTabs().isEmpty() && stg2 != null) stg2.close();
-            }
-        });
         // Track active terminal from workspace focus
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
@@ -416,10 +401,10 @@ public class JHostty extends Application {
             }
         });
         var tab = new Tab();
+        tab.setClosable(false);
         tab.setText("jhostty");
         tab.setContent(workspace);
-        tab.setClosable(true);
-        tab.setOnClosed(_ -> closeTerminalsIn(workspace));
+        setupTabGraphic(tab, tabPane);
 
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
@@ -427,6 +412,7 @@ public class JHostty extends Application {
         // Update tab title when workspace focus changes
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
+                tab.textProperty().unbind();
                 tab.textProperty().bind(tv.titleProperty());
             }
         });
@@ -452,21 +438,6 @@ public class JHostty extends Application {
             if (t != null && tp != null) tp.getTabs().remove(t);
             if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
         }));
-        workspace.setOnNewTab(() -> newTabNext(tabPane));
-        workspace.setOnClosePane(leaf -> {
-            var content = leaf.content();
-            if (content instanceof TerminalView tv) {
-                if (closingTerminals.add(tv)) Thread.ofVirtual().name("jhostty-close").start(tv::close);
-            }
-            workspace.closePane(leaf);
-            if (workspace.allLeaves().isEmpty()) {
-                var tp2 = findTabPane(workspace);
-                var stg2 = tp2 != null ? findStage(tp2) : null;
-                var t2 = findTab(workspace);
-                if (t2 != null && tp2 != null) tp2.getTabs().remove(t2);
-                if (tp2 != null && tp2.getTabs().isEmpty() && stg2 != null) stg2.close();
-            }
-        });
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
                 activeTerminal = tv;
@@ -476,10 +447,10 @@ public class JHostty extends Application {
             }
         });
         var tab = new Tab();
+        tab.setClosable(false);
         tab.setText("jhostty");
         tab.setContent(workspace);
-        tab.setClosable(false);
-        tab.setOnClosed(_ -> closeTerminalsIn(workspace));
+        setupTabGraphic(tab, tabPane);
         if (idx >= 0 && idx + 1 < tabPane.getTabs().size()) {
             tabPane.getTabs().add(idx + 1, tab);
         } else {
@@ -488,10 +459,44 @@ public class JHostty extends Application {
         tabPane.getSelectionModel().select(tab);
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
+                tab.textProperty().unbind();
                 tab.textProperty().bind(tv.titleProperty());
             }
         });
         Platform.runLater(JHostty::saveState);
+    }
+
+    /** Set up a tab's graphic with title label, + button, and ✕ button. */
+    static void setupTabGraphic(Tab tab, TabPane tabPane) {
+        var titleLbl = new Label(tab.getText() != null ? tab.getText() : "Terminal");
+        titleLbl.setStyle("-fx-font-size: 11;");
+        titleLbl.setMouseTransparent(true);
+        // Keep graphic title in sync with tab text property
+        tab.textProperty().addListener((_, _, text) -> titleLbl.setText(text != null && !text.isBlank() ? text : "Terminal"));
+        var spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        var addBtn = new Label("+");
+        addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 0 2;");
+        addBtn.setOnMouseEntered(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.8); -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 0 2;"));
+        addBtn.setOnMouseExited(_ -> addBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 0 2;"));
+        addBtn.setOnMouseClicked(e -> { newTabNext(tabPane); e.consume(); });
+        var closeBtn = new Label("\u2715");
+        closeBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 10; -fx-cursor: hand; -fx-padding: 0 2;");
+        closeBtn.setOnMouseEntered(_ -> closeBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.8); -fx-font-size: 10; -fx-cursor: hand; -fx-padding: 0 2;"));
+        closeBtn.setOnMouseExited(_ -> closeBtn.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 10; -fx-cursor: hand; -fx-padding: 0 2;"));
+        closeBtn.setOnMouseClicked(e -> {
+            closeTerminalsIn(tab.getContent());
+            tabPane.getTabs().remove(tab);
+            if (tabPane.getTabs().isEmpty()) {
+                var stg = findStage(tabPane);
+                if (stg != null) stg.close();
+            }
+            e.consume();
+        });
+        var graphic = new HBox(4, titleLbl, spacer, addBtn, closeBtn);
+        graphic.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        graphic.setMinWidth(0);
+        tab.setGraphic(graphic);
     }
 
     static void rebuildWindowMenus() {
@@ -1842,21 +1847,6 @@ public class JHostty extends Application {
             if (t != null && tp != null) tabPane.getTabs().remove(t);
             if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
         }));
-        workspace.setOnNewTab(() -> newTabNext(tabPane));
-        workspace.setOnClosePane(leaf -> {
-            var content = leaf.content();
-            if (content instanceof TerminalView tv) {
-                if (closingTerminals.add(tv)) Thread.ofVirtual().name("jhostty-close").start(tv::close);
-            }
-            workspace.closePane(leaf);
-            if (workspace.allLeaves().isEmpty()) {
-                var tp2 = findTabPane(workspace);
-                var stg2 = tp2 != null ? findStage(tp2) : null;
-                var t2 = findTab(workspace);
-                if (t2 != null && tp2 != null) tp2.getTabs().remove(t2);
-                if (tp2 != null && tp2.getTabs().isEmpty() && stg2 != null) stg2.close();
-            }
-        });
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
             if (pane != null && pane.content() instanceof TerminalView tv) {
                 activeTerminal = tv;
@@ -1866,10 +1856,10 @@ public class JHostty extends Application {
             }
         });
         var tab = new Tab();
+        tab.setClosable(false);
         tab.setText(commandBaseName(cmd));
         tab.setContent(workspace);
-        tab.setClosable(false);
-        tab.setOnClosed(_ -> closeTerminalsIn(workspace));
+        setupTabGraphic(tab, tabPane);
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
         Platform.runLater(JHostty::saveState);
