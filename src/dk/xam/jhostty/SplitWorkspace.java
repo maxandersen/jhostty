@@ -676,7 +676,8 @@ class SplitWorkspace extends Region {
                 header.setOnMouseReleased(e -> { endPaneDrag(e); e.consume(); });
 
                 // Layout: header on top, content fills rest
-                var paneNode = new AnchorPane(header, content);
+                // header added AFTER content so it's on top for mouse events
+                var paneNode = new AnchorPane(content, header);
                 AnchorPane.setTopAnchor(header, 0.0);
                 AnchorPane.setLeftAnchor(header, 0.0);
                 AnchorPane.setRightAnchor(header, 0.0);
