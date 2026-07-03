@@ -2348,6 +2348,9 @@ public class JHostty extends Application {
         commands.add(new PaletteItem("New Tab", sc + "T", "Shell", () -> newTabNext(tabs)));
         commands.add(new PaletteItem("New Window", sc + "N", "Shell", () -> newWindow()));
         commands.add(new PaletteItem("Close Pane/Tab", sc + "W", "Shell", () -> closeActive(tabs, stage)));
+        commands.add(new PaletteItem("Close Other Tabs", "", "Shell", () -> closeOtherTabs(tabs)));
+        commands.add(new PaletteItem("Close Tabs to the Left", "", "Shell", () -> closeTabsToLeft(tabs)));
+        commands.add(new PaletteItem("Close Tabs to the Right", "", "Shell", () -> closeTabsToRight(tabs)));
         commands.add(new PaletteItem("Add Column", sc + "D", "Shell", () -> splitActive(Orientation.VERTICAL)));
         commands.add(new PaletteItem("Add Row", sc + sh + "D", "Shell", () -> splitActive(Orientation.HORIZONTAL)));
         commands.add(new PaletteItem("Show All Tabs", sc + sh + "T", "Shell", () -> toggleTabOverview(tabs)));
@@ -2569,6 +2572,28 @@ public class JHostty extends Application {
             tabPane.getTabs().add(tab);
             tabPane.getSelectionModel().select(tab);
         } catch (IOException _) {}
+    }
+
+    static void closeOtherTabs(TabPane tabs) {
+        var selected = tabs.getSelectionModel().getSelectedItem();
+        if (selected == null) return;
+        var toClose = new ArrayList<>(tabs.getTabs());
+        toClose.remove(selected);
+        for (var tab : toClose) { closeTerminalsIn(tab.getContent()); tabs.getTabs().remove(tab); }
+    }
+
+    static void closeTabsToLeft(TabPane tabs) {
+        var idx = tabs.getSelectionModel().getSelectedIndex();
+        if (idx <= 0) return;
+        var toClose = new ArrayList<>(tabs.getTabs().subList(0, idx));
+        for (var tab : toClose) { closeTerminalsIn(tab.getContent()); tabs.getTabs().remove(tab); }
+    }
+
+    static void closeTabsToRight(TabPane tabs) {
+        var idx = tabs.getSelectionModel().getSelectedIndex();
+        if (idx < 0 || idx >= tabs.getTabs().size() - 1) return;
+        var toClose = new ArrayList<>(tabs.getTabs().subList(idx + 1, tabs.getTabs().size()));
+        for (var tab : toClose) { closeTerminalsIn(tab.getContent()); tabs.getTabs().remove(tab); }
     }
 
     static TabPane findActiveTabPane() {
