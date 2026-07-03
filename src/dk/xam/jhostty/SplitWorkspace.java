@@ -909,7 +909,7 @@ class SplitWorkspace extends Region {
     }
 
     private void handleFocusFollowsMouse(MouseEvent e) {
-        if (!focusFollowsMouse.get() || zoomed) return;
+        if (!focusFollowsMouse.get() || zoomed || dragSource != null) return;
         double mx = e.getX(), my = e.getY();
         var leaf = leafAt(mx, my);
         if (leaf != null && leaf != focusedPane.get()) {
