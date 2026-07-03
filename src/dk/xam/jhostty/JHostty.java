@@ -2053,12 +2053,15 @@ public class JHostty extends Application {
             D + "  Auto-saved:" + R + "    ~/.config/jhostty/jhostty-state.properties\n" +
             D + "  Keys:" + R + "          theme, font, font-size, shell\n";
 
-        // Run in a terminal pane via sh -c 'echo ... | less -R'
-        var escaped = help.replace("'", "'\\''");
-        var cmd = List.of("sh", "-c", "echo '" + escaped + "' | less -R");
-        var tabPane = findActiveTabPane();
-        if (tabPane == null) return;
-        var view = createTerminal(cmd);
+        // Write to temp file and display with less
+        try {
+            var tmpFile = Files.createTempFile("jhostty-help", ".txt");
+            tmpFile.toFile().deleteOnExit();
+            Files.writeString(tmpFile, help);
+            var cmd = List.of("sh", "-c", "cat '" + tmpFile + "' && read -n1 -s -r -p '\nPress any key to close...'");
+            var tabPane = findActiveTabPane();
+            if (tabPane == null) return;
+            var view = createTerminal(cmd);
         if (view == null) return;
         newTab(tabPane);
         // Replace the new tab's workspace content with our help terminal
@@ -2075,6 +2078,7 @@ public class JHostty extends Application {
                 ws.requestLayout();
             }
         }
+        } catch (IOException _) {}
     }
 
     static TabPane findActiveTabPane() {
