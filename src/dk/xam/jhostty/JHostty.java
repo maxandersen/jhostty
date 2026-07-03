@@ -1222,18 +1222,6 @@ public class JHostty extends Application {
         themeCombo.setValue(allThemes.stream().filter(t -> t.label().equals(currentThemeName)).findFirst().orElse(allThemes.getFirst()));
         themeCombo.setPrefWidth(190);
         themeCombo.setStyle("-fx-font-size: 11;");
-        themeCombo.setEditable(true);
-        // Searchable: filter as user types
-        themeCombo.getEditor().textProperty().addListener((_, _, text) -> {
-            if (text == null || text.isBlank()) {
-                themeCombo.getItems().setAll(allThemes);
-            } else {
-                var lower = text.toLowerCase();
-                var filtered = allThemes.stream().filter(t -> t.label().toLowerCase().contains(lower)).toList();
-                themeCombo.getItems().setAll(filtered);
-                if (!themeCombo.isShowing() && !filtered.isEmpty()) themeCombo.show();
-            }
-        });
         themeCombo.setOnAction(_ -> {
             var selected = themeCombo.getValue();
             if (selected != null && !selected.label().equals(currentThemeName)) {
@@ -1242,11 +1230,6 @@ public class JHostty extends Application {
                 applyThemeToAll();
                 saveState();
             }
-        });
-        // Also update combo when theme changes via menu
-        themeCombo.setOnShowing(_ -> {
-            themeCombo.getItems().setAll(allThemes);
-            themeCombo.setValue(allThemes.stream().filter(t -> t.label().equals(currentThemeName)).findFirst().orElse(null));
         });
 
         var panel = new VBox(10,
