@@ -1970,6 +1970,7 @@ public class JHostty extends Application {
             if (debug && e.isShortcutDown()) debug("KeyEvent: code=" + e.getCode() + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown() + " shift=" + e.isShiftDown());
             if (!e.isShortcutDown()) return;
             switch (e.getCode()) {
+                case P -> { showCommandPalette(tabs); e.consume(); }
                 case Q -> { quit(); e.consume(); }
                 case N -> { newWindow(); e.consume(); }
                 case T -> { if (e.isShiftDown()) toggleTabOverview(tabs); else newTabNext(tabs); e.consume(); }
@@ -2308,6 +2309,167 @@ public class JHostty extends Application {
             tabOverviewAnimating = false;
         });
         anims.play();
+    }
+
+    // --- Command Palette ---
+
+    record PaletteItem(String label, String shortcut, String category, Runnable action) {
+        @Override public String toString() { return label; }
+    }
+
+    static javafx.scene.layout.StackPane paletteOverlay;
+
+    static void showCommandPalette(TabPane tabs) {
+        var stage = findStage(tabs);
+        if (stage == null) return;
+        var rootStack = (javafx.scene.layout.StackPane) stage.getScene().getRoot();
+
+        // Dismiss if already showing
+        if (paletteOverlay != null && paletteOverlay.getParent() == rootStack) {
+            rootStack.getChildren().remove(paletteOverlay);
+            paletteOverlay = null;
+            return;
+        }
+
+        var sc = IS_MAC ? "\u2318" : "Ctrl+";
+        var sh = IS_MAC ? "\u21E7" : "Shift+";
+
+        // Build command list
+        var commands = new ArrayList<PaletteItem>();
+        commands.add(new PaletteItem("New Tab", sc + "T", "Shell", () -> newTabNext(tabs)));
+        commands.add(new PaletteItem("New Window", sc + "N", "Shell", () -> newWindow()));
+        commands.add(new PaletteItem("Close Pane/Tab", sc + "W", "Shell", () -> closeActive(tabs, stage)));
+        commands.add(new PaletteItem("Add Column", sc + "D", "Shell", () -> splitActive(Orientation.VERTICAL)));
+        commands.add(new PaletteItem("Add Row", sc + sh + "D", "Shell", () -> splitActive(Orientation.HORIZONTAL)));
+        commands.add(new PaletteItem("Show All Tabs", sc + sh + "T", "Shell", () -> toggleTabOverview(tabs)));
+        commands.add(new PaletteItem("Quit", sc + "Q", "Shell", () -> quit()));
+        commands.add(new PaletteItem("Toggle Sidebar", sc + "/", "View", () -> toggleSidebar()));
+        commands.add(new PaletteItem("Toggle Settings", sc + ",", "View", () -> {
+            var bp = getRootPane(stage); if (bp != null) { var sp = (Node) bp.getRight(); if (sp != null) { var vis = !sp.isVisible(); sp.setVisible(vis); sp.setManaged(vis); } }
+        }));
+        commands.add(new PaletteItem("Zoom In", sc + "+", "View", () -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); }));
+        commands.add(new PaletteItem("Zoom Out", sc + "-", "View", () -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); }));
+        commands.add(new PaletteItem("Reset Zoom", sc + "0", "View", () -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); }));
+        commands.add(new PaletteItem("Zoom/Unzoom Pane", sc + sh + "Enter", "Pane", () -> { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); }));
+        commands.add(new PaletteItem("Focus Next Pane", sc + "Tab", "Pane", () -> { var ws = activeWorkspace(); if (ws != null) ws.focusNext(); }));
+        commands.add(new PaletteItem("Help", sc + sh + "/", "Help", () -> showHelp()));
+        commands.add(new PaletteItem("Reload Config", "", "View", () -> { loadConfig(); applyThemeToAll(); }));
+
+        // Add tabs as items
+        for (int i = 0; i < tabs.getTabs().size(); i++) {
+            var tab = tabs.getTabs().get(i);
+            var title = tab.getText() != null && !tab.getText().isBlank() ? tab.getText() : "Terminal";
+            final int idx = i;
+            commands.add(new PaletteItem("Switch to: " + title, i < 9 ? sc + (i + 1) : "", "Tabs", () -> tabs.getSelectionModel().select(idx)));
+        }
+
+        // Add themes (first 50 matching)
+        for (var t : Themes.all()) {
+            final var theme = t;
+            commands.add(new PaletteItem("Theme: " + t.label(), "", "Themes", () -> {
+                currentThemeName = theme.label(); currentTheme = theme.theme(); applyThemeToAll(); saveState();
+            }));
+        }
+
+        var allItems = List.copyOf(commands);
+
+        var searchField = new TextField();
+        searchField.setPromptText("Type a command, tab name, or theme...");
+        searchField.setStyle("-fx-font-size: 14; -fx-background-color: rgba(255,255,255,0.08); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.15); -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 8 12;");
+
+        var resultList = new ListView<PaletteItem>();
+        resultList.getItems().addAll(allItems.stream().limit(20).toList());
+        resultList.setPrefHeight(300);
+        resultList.setStyle("-fx-background-color: transparent;");
+        resultList.setCellFactory(_ -> new javafx.scene.control.ListCell<>() {
+            @Override protected void updateItem(PaletteItem item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) { setGraphic(null); return; }
+                var lbl = new Label(item.label());
+                lbl.setStyle("-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 13;");
+                var cat = new Label(item.category());
+                cat.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 10;");
+                var spacer = new Region();
+                HBox.setHgrow(spacer, Priority.ALWAYS);
+                var sc2 = new Label(item.shortcut());
+                sc2.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 11;");
+                var row = new HBox(8, lbl, cat, spacer, sc2);
+                row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+                setGraphic(row);
+                setStyle("-fx-background-color: transparent; -fx-padding: 4 8;");
+            }
+        });
+
+        // Filter
+        searchField.textProperty().addListener((_, _, text) -> {
+            resultList.getItems().clear();
+            var lower = text == null ? "" : text.toLowerCase();
+            allItems.stream()
+                .filter(item -> lower.isEmpty() || item.label().toLowerCase().contains(lower)
+                    || item.category().toLowerCase().contains(lower))
+                .limit(20)
+                .forEach(item -> resultList.getItems().add(item));
+            if (!resultList.getItems().isEmpty()) resultList.getSelectionModel().select(0);
+        });
+
+        // Arrow keys navigate, Enter selects
+        searchField.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() == KeyCode.DOWN) {
+                var idx = resultList.getSelectionModel().getSelectedIndex();
+                resultList.getSelectionModel().select(Math.min(idx + 1, resultList.getItems().size() - 1));
+                resultList.scrollTo(resultList.getSelectionModel().getSelectedIndex());
+                e.consume();
+            } else if (e.getCode() == KeyCode.UP) {
+                var idx = resultList.getSelectionModel().getSelectedIndex();
+                resultList.getSelectionModel().select(Math.max(idx - 1, 0));
+                resultList.scrollTo(resultList.getSelectionModel().getSelectedIndex());
+                e.consume();
+            } else if (e.getCode() == KeyCode.ENTER) {
+                var sel = resultList.getSelectionModel().getSelectedItem();
+                if (sel != null) {
+                    rootStack.getChildren().remove(paletteOverlay);
+                    paletteOverlay = null;
+                    Platform.runLater(sel.action());
+                }
+                e.consume();
+            } else if (e.getCode() == KeyCode.ESCAPE) {
+                rootStack.getChildren().remove(paletteOverlay);
+                paletteOverlay = null;
+                e.consume();
+            }
+        });
+
+        // Click to select
+        resultList.setOnMouseClicked(_ -> {
+            var sel = resultList.getSelectionModel().getSelectedItem();
+            if (sel != null) {
+                rootStack.getChildren().remove(paletteOverlay);
+                paletteOverlay = null;
+                Platform.runLater(sel.action());
+            }
+        });
+
+        var paletteBox = new VBox(8, searchField, resultList);
+        paletteBox.setStyle("-fx-background-color: rgba(30,30,30,0.95); -fx-background-radius: 10; -fx-border-color: rgba(255,255,255,0.12); -fx-border-radius: 10; -fx-padding: 12; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.6), 20, 0, 0, 8);");
+        paletteBox.setMaxWidth(500);
+        paletteBox.setMaxHeight(400);
+
+        paletteOverlay = new javafx.scene.layout.StackPane(paletteBox);
+        paletteOverlay.setStyle("-fx-background-color: rgba(0,0,0,0.4);");
+        javafx.scene.layout.StackPane.setAlignment(paletteBox, javafx.geometry.Pos.TOP_CENTER);
+        javafx.scene.layout.StackPane.setMargin(paletteBox, new javafx.geometry.Insets(80, 0, 0, 0));
+
+        // Click background to dismiss
+        paletteOverlay.setOnMouseClicked(e -> {
+            if (e.getTarget() == paletteOverlay) {
+                rootStack.getChildren().remove(paletteOverlay);
+                paletteOverlay = null;
+            }
+        });
+
+        rootStack.getChildren().add(paletteOverlay);
+        searchField.requestFocus();
+        if (!resultList.getItems().isEmpty()) resultList.getSelectionModel().select(0);
     }
 
     // --- Help ---
