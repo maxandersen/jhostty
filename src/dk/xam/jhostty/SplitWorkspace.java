@@ -222,10 +222,12 @@ class SplitWorkspace extends Region {
 
     public void setContentFactory(Supplier<Node> factory) { this.contentFactory = factory; }
     public void setOnEmpty(Runnable handler) { this.onEmpty = handler; }
-    /** Callback receives (leaf, screenX, screenY) when a pane is dragged outside all workspaces. */
+    /** Callback receives (leaf, screenX, screenY, paneW, paneH) when a pane is dragged outside all workspaces. */
     private PaneDraggedOutHandler onPaneDraggedOut;
-    public interface PaneDraggedOutHandler { void handle(LeafPane leaf, double screenX, double screenY); }
+    public interface PaneDraggedOutHandler { void handle(LeafPane leaf, double screenX, double screenY, double paneW, double paneH); }
     public void setOnPaneDraggedOut(PaneDraggedOutHandler handler) { this.onPaneDraggedOut = handler; }
+    private javafx.stage.Stage paneDragGhost;
+    private boolean paneDragOutside;
     public Supplier<Node> getContentFactory() { return contentFactory; }
 
     public ObjectProperty<LeafPane> focusedPaneProperty() { return focusedPane; }
@@ -1194,8 +1196,9 @@ class SplitWorkspace extends Region {
             var target = targetWs.leafAt(targetLocal.getX(), targetLocal.getY());
             if (target != null && target != dragSource) {
                 dropTarget = target;
-                // Store which workspace will receive the drop
                 dragTargetWorkspace = targetWs;
+                // Back over a workspace — hide ghost
+                if (paneDragOutside) { paneDragOutside = false; if (paneDragGhost != null) { paneDragGhost.close(); paneDragGhost = null; } }
                 var r = targetWs.currentRects.get(target.id());
                 if (r != null) {
                     dropZone = computeDropZone(targetLocal.getX(), targetLocal.getY(), r);
@@ -1209,11 +1212,44 @@ class SplitWorkspace extends Region {
                 dropZone = null;
                 if (dropHighlight != null) dropHighlight.setVisible(false);
             }
+            // Over a workspace but not a valid target — hide ghost
+            if (paneDragOutside) {
+                paneDragOutside = false;
+                if (paneDragGhost != null) { paneDragGhost.close(); paneDragGhost = null; }
+            }
         } else {
             dropTarget = null;
             dragTargetWorkspace = null;
             dropZone = null;
             if (dropHighlight != null) dropHighlight.setVisible(false);
+            // Outside all workspaces — show ghost window
+            if (!paneDragOutside && onPaneDraggedOut != null) {
+                paneDragOutside = true;
+                var title = dragSource.title();
+                if (dragSource.content() instanceof io.github.vlaaad.ghosttyfx.TerminalView tv && tv.getTitle() != null)
+                    title = tv.getTitle();
+                if (title == null || title.isEmpty()) title = "Terminal";
+                var r = currentRects.get(dragSource.id());
+                double gw = r != null ? Math.min(r.w() * 0.6, 300) : 200;
+                double gh = r != null ? Math.min(r.h() * 0.4, 200) : 100;
+                var ghostLabel = new javafx.scene.control.Label(title);
+                ghostLabel.setStyle("-fx-font-size: 12; -fx-text-fill: rgba(255,255,255,0.8);");
+                var ghostPane = new HBox(ghostLabel);
+                ghostPane.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 8; -fx-padding: 10 24; -fx-border-color: rgba(255,255,255,0.15); -fx-border-radius: 8;");
+                ghostPane.setAlignment(javafx.geometry.Pos.CENTER);
+                ghostPane.setPrefSize(gw, gh);
+                var ghostScene = new Scene(ghostPane);
+                ghostScene.setFill(Color.TRANSPARENT);
+                paneDragGhost = new javafx.stage.Stage();
+                paneDragGhost.initStyle(javafx.stage.StageStyle.TRANSPARENT);
+                paneDragGhost.setScene(ghostScene);
+                paneDragGhost.setWidth(gw); paneDragGhost.setHeight(gh);
+            }
+            if (paneDragOutside && paneDragGhost != null) {
+                paneDragGhost.setX(e.getScreenX() - paneDragGhost.getWidth() / 2);
+                paneDragGhost.setY(e.getScreenY() - 20);
+                if (!paneDragGhost.isShowing()) paneDragGhost.show();
+            }
         }
     }
 
@@ -1231,14 +1267,20 @@ class SplitWorkspace extends Region {
             dropHighlight = null;
         }
 
+        // Clean up ghost
+        if (paneDragGhost != null) { paneDragGhost.close(); paneDragGhost = null; }
+        paneDragOutside = false;
+
         // Perform drop
         if (dragging && dropTarget == null && onPaneDraggedOut != null) {
-            // Dragged outside all workspaces — detach and notify with drop position
             var source = dragSource;
             double sx = e.getScreenX(), sy = e.getScreenY();
+            var r = currentRects.get(source.id());
+            double pw = r != null ? r.w() : 400;
+            double ph = r != null ? r.h() : 300;
             removeLeaf(source);
             dragSource = null; dropTarget = null; dropZone = null; dragTargetWorkspace = null; dragging = false;
-            onPaneDraggedOut.handle(source, sx, sy);
+            onPaneDraggedOut.handle(source, sx, sy, pw, ph);
             return;
         }
         if (dragging && dropTarget != null && dropZone != null) {

@@ -539,14 +539,18 @@ public class JHostty extends Application {
                         var ghostScene = new Scene(ghostPane);
                         ghostScene.setFill(Color.TRANSPARENT);
                         ghost.setScene(ghostScene);
-                        ghost.setWidth(200); ghost.setHeight(50);
-                        ghost.setX(e.getScreenX() - 100); ghost.setY(e.getScreenY() - 25);
+                        var srcStage = findStage(tabPane);
+                        double gw = srcStage != null ? Math.min(srcStage.getWidth() * 0.6, 400) : 200;
+                        double gh = srcStage != null ? Math.min(srcStage.getHeight() * 0.3, 150) : 50;
+                        ghostPane.setPrefSize(gw, gh);
+                        ghost.setWidth(gw); ghost.setHeight(gh);
+                        ghost.setX(e.getScreenX() - gw / 2); ghost.setY(e.getScreenY() - 20);
                         ghost.show();
                         activeTabDragGhost = ghost;
                     }
                     if (tabDragging[0] && activeTabDragGhost != null) {
-                        activeTabDragGhost.setX(e.getScreenX() - 100);
-                        activeTabDragGhost.setY(e.getScreenY() - 25);
+                        activeTabDragGhost.setX(e.getScreenX() - activeTabDragGhost.getWidth() / 2);
+                        activeTabDragGhost.setY(e.getScreenY() - 20);
                     }
                     if (!outside && tabDragging[0]) {
                         tabDragging[0] = false;
@@ -1776,11 +1780,13 @@ public class JHostty extends Application {
             if (t != null && tp != null) tp.getTabs().remove(t);
             if (tp != null && tp.getTabs().isEmpty() && stg != null) stg.close();
         }));
-        workspace.setOnPaneDraggedOut((leaf, screenX, screenY) -> Platform.runLater(() -> {
-            // Create a new window at the drop position
+        workspace.setOnPaneDraggedOut((leaf, screenX, screenY, paneW, paneH) -> Platform.runLater(() -> {
+            // Create a new window at the drop position, sized to the pane
             var newStage = newWindowEmpty();
             if (newStage == null) return;
-            newStage.setX(screenX - 200);
+            newStage.setWidth(Math.max(400, paneW + 40));
+            newStage.setHeight(Math.max(300, paneH + 80));
+            newStage.setX(screenX - newStage.getWidth() / 2);
             newStage.setY(screenY - 30);
             var newTabs = getTabPane(newStage);
             if (newTabs == null) return;
