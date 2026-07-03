@@ -225,11 +225,11 @@ public class JHostty extends Application {
         newTabItem.setAccelerator(KeyCombination.keyCombination("Shortcut+T"));
         newTabItem.setOnAction(_ -> newTabNext(tabs));
 
-        var splitH = new MenuItem("Split Horizontal");
+        var splitH = new MenuItem("Add Column");
         splitH.setAccelerator(KeyCombination.keyCombination("Shortcut+D"));
         splitH.setOnAction(_ -> splitActive(Orientation.VERTICAL));
 
-        var splitV = new MenuItem("Split Vertical");
+        var splitV = new MenuItem("Add Row");
         splitV.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+D"));
         splitV.setOnAction(_ -> splitActive(Orientation.HORIZONTAL));
 
@@ -350,9 +350,9 @@ public class JHostty extends Application {
         newWindowItem.setOnAction(_ -> newWindow());
         var newTabItem = new MenuItem("New Tab                 " + sc + "T");
         newTabItem.setOnAction(_ -> newTab(findTabPane(view)));
-        var splitH = new MenuItem("Split Horizontal    " + sc + "D");
+        var splitH = new MenuItem("Add Column    " + sc + "D");
         splitH.setOnAction(_ -> split(view, Orientation.VERTICAL));
-        var splitV = new MenuItem("Split Vertical        " + sc + sh + "D");
+        var splitV = new MenuItem("Add Row        " + sc + sh + "D");
         splitV.setOnAction(_ -> split(view, Orientation.HORIZONTAL));
         var zoomIn = new MenuItem("Zoom In                 " + sc + "+");
         zoomIn.setOnAction(_ -> zoomTerminal(view, 1));
@@ -1158,10 +1158,10 @@ public class JHostty extends Application {
     // --- Workspace Toolbar ---
 
     static HBox createWorkspaceToolbar(TabPane tabs) {
-        var btnLeft   = toolBtn("\u21E4", "Split Left",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.LEFT); });
-        var btnRight  = toolBtn("\u21E5", "Split Right", () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.RIGHT); });
-        var btnUp     = toolBtn("\u2912", "Split Up",    () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.TOP); });
-        var btnDown   = toolBtn("\u2913", "Split Down",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.BOTTOM); });
+        var btnLeft   = toolBtn("\u21E4", "Add Column Left",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.LEFT); });
+        var btnRight  = toolBtn("\u21E5", "Add Column Right", () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.RIGHT); });
+        var btnUp     = toolBtn("\u2912", "Add Row Above",    () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.TOP); });
+        var btnDown   = toolBtn("\u2913", "Add Row Below",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.BOTTOM); });
         var btnClose  = toolBtn("\u2715", "Close Pane",  () -> { var ws = activeWorkspace(); if (ws != null) ws.closeFocused(); });
         var btnZoom   = toolBtn("\u2922", "Zoom Toggle", () -> { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); });
         var btnReset  = toolBtn("\u21BA", "Reset Layout", () -> {
