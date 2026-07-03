@@ -2375,7 +2375,7 @@ public class JHostty extends Application {
 
         var searchField = new TextField();
         searchField.setPromptText("Type a command, tab name, or theme...");
-        searchField.setStyle("-fx-font-size: 14; -fx-background-color: rgba(255,255,255,0.08); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.15); -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 8 12;");
+        searchField.setStyle("-fx-font-size: 15; -fx-background-color: rgba(255,255,255,0.08); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.15); -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 8 12;");
 
         var resultList = new ListView<PaletteItem>();
         resultList.getItems().addAll(allItems.stream().limit(20).toList());
@@ -2386,13 +2386,13 @@ public class JHostty extends Application {
                 super.updateItem(item, empty);
                 if (empty || item == null) { setGraphic(null); return; }
                 var lbl = new Label(item.label());
-                lbl.setStyle("-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 13;");
+                lbl.setStyle("-fx-text-fill: rgba(255,255,255,0.9); -fx-font-size: 14;");
                 var cat = new Label(item.category());
-                cat.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 10;");
+                cat.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 11;");
                 var spacer = new Region();
                 HBox.setHgrow(spacer, Priority.ALWAYS);
                 var sc2 = new Label(item.shortcut());
-                sc2.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 11;");
+                sc2.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 12;");
                 var row = new HBox(8, lbl, cat, spacer, sc2);
                 row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
                 setGraphic(row);
@@ -2413,6 +2413,18 @@ public class JHostty extends Application {
         });
 
         // Arrow keys navigate, Enter selects
+        // Execute selected item helper
+        final Runnable[] execRef = new Runnable[1];
+        execRef[0] = () -> {
+            var sel = resultList.getSelectionModel().getSelectedItem();
+            if (sel != null) {
+                var r = (javafx.scene.layout.StackPane) stage.getScene().getRoot();
+                r.getChildren().remove(paletteOverlay);
+                paletteOverlay = null;
+                Platform.runLater(sel.action());
+            }
+        };
+
         searchField.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
             if (e.getCode() == KeyCode.DOWN) {
                 var idx = resultList.getSelectionModel().getSelectedIndex();
@@ -2425,47 +2437,38 @@ public class JHostty extends Application {
                 resultList.scrollTo(resultList.getSelectionModel().getSelectedIndex());
                 e.consume();
             } else if (e.getCode() == KeyCode.ENTER) {
-                var sel = resultList.getSelectionModel().getSelectedItem();
-                if (sel != null) {
-                    rootStack.getChildren().remove(paletteOverlay);
-                    paletteOverlay = null;
-                    Platform.runLater(sel.action());
-                }
-                e.consume();
+                execRef[0].run(); e.consume();
             } else if (e.getCode() == KeyCode.ESCAPE) {
-                rootStack.getChildren().remove(paletteOverlay);
-                paletteOverlay = null;
-                e.consume();
+                rootStack.getChildren().remove(paletteOverlay); paletteOverlay = null; e.consume();
             }
         });
 
         // Click to select
-        resultList.setOnMouseClicked(_ -> {
-            var sel = resultList.getSelectionModel().getSelectedItem();
-            if (sel != null) {
-                rootStack.getChildren().remove(paletteOverlay);
-                paletteOverlay = null;
-                Platform.runLater(sel.action());
-            }
-        });
+        resultList.setOnMouseClicked(_ -> execRef[0].run());
 
         var paletteBox = new VBox(8, searchField, resultList);
         paletteBox.setStyle("-fx-background-color: rgba(30,30,30,0.95); -fx-background-radius: 10; -fx-border-color: rgba(255,255,255,0.12); -fx-border-radius: 10; -fx-padding: 12; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.6), 20, 0, 0, 8);");
         paletteBox.setMaxWidth(500);
         paletteBox.setMaxHeight(400);
 
-        paletteOverlay = new javafx.scene.layout.StackPane(paletteBox);
-        paletteOverlay.setStyle("-fx-background-color: rgba(0,0,0,0.4);");
-        javafx.scene.layout.StackPane.setAlignment(paletteBox, javafx.geometry.Pos.TOP_CENTER);
-        javafx.scene.layout.StackPane.setMargin(paletteBox, new javafx.geometry.Insets(80, 0, 0, 0));
-
-        // Click background to dismiss
-        paletteOverlay.setOnMouseClicked(e -> {
-            if (e.getTarget() == paletteOverlay) {
-                rootStack.getChildren().remove(paletteOverlay);
-                paletteOverlay = null;
+        // Arrow/Enter/Escape on the list itself
+        resultList.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() == KeyCode.ENTER) { execRef[0].run(); e.consume(); }
+            else if (e.getCode() == KeyCode.ESCAPE) { rootStack.getChildren().remove(paletteOverlay); paletteOverlay = null; e.consume(); }
+            // Typing goes to search field
+            else if (e.getCode().isLetterKey() || e.getCode().isDigitKey() || e.getCode() == KeyCode.BACK_SPACE) {
+                searchField.requestFocus();
+                if (e.getCode() == KeyCode.BACK_SPACE) searchField.deletePreviousChar();
+                else searchField.appendText(e.getText());
+                e.consume();
             }
         });
+
+        paletteOverlay = new javafx.scene.layout.StackPane(paletteBox);
+        paletteOverlay.setStyle("-fx-background-color: transparent;");
+        paletteOverlay.setPickOnBounds(false);
+        javafx.scene.layout.StackPane.setAlignment(paletteBox, javafx.geometry.Pos.TOP_CENTER);
+        javafx.scene.layout.StackPane.setMargin(paletteBox, new javafx.geometry.Insets(60, 0, 0, 0));
 
         rootStack.getChildren().add(paletteOverlay);
         searchField.requestFocus();
