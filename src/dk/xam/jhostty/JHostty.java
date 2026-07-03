@@ -1535,8 +1535,7 @@ public class JHostty extends Application {
         if (desc.isEmpty()) { newTab(tabPane); return; }
         // New format: L[cmd], H{0.500:L[cmd],0.500:L[cmd]}, V{...}
         // Legacy format: 1[cmd], H3[cmd|cmd|cmd]
-        if (desc.startsWith("T[") || desc.startsWith("C{") || desc.startsWith("R{") ||
-            desc.startsWith("L[") || desc.startsWith("H{") || desc.startsWith("V{")) {
+        if (desc.startsWith("T[") || desc.startsWith("C{") || desc.startsWith("R{")) {
             var tree = parseSplitNode(desc, new int[]{0});
             if (tree == null) { newTab(tabPane); return; }
             var workspace = buildWorkspaceFromTree(tree);
@@ -1564,9 +1563,9 @@ public class JHostty extends Application {
     static SplitNode parseSplitNode(String s, int[] pos) {
         if (pos[0] >= s.length()) return null;
         char c = s.charAt(pos[0]);
-        if (c == 'T' || c == 'L') {
-            // Terminal: T[command] (legacy: L[command])
-            pos[0] += 2; // skip "T[" or "L["
+        if (c == 'T') {
+            // Terminal: T[command]
+            pos[0] += 2; // skip "T["
             int end = s.indexOf(']', pos[0]);
             if (end < 0) return null;
             var cmdStr = s.substring(pos[0], end);
@@ -1575,9 +1574,9 @@ public class JHostty extends Application {
             var view = createTerminalClean(cmd);
             if (view == null) return null;
             return new LeafPane(PaneId.next(), view, null);
-        } else if (c == 'C' || c == 'R' || c == 'H' || c == 'V') {
-            // Column: C{...}, Row: R{...} (legacy: H{...}, V{...})
-            var orient = (c == 'C' || c == 'H') ? Orientation.HORIZONTAL : Orientation.VERTICAL;
+        } else if (c == 'C' || c == 'R') {
+            // Column: C{...}, Row: R{...}
+            var orient = c == 'C' ? Orientation.HORIZONTAL : Orientation.VERTICAL;
             pos[0] += 2; // skip "C{" or "R{"
             var children = new ArrayList<SplitNode>();
             var weights = new ArrayList<Double>();
