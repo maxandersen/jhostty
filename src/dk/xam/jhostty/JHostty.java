@@ -1124,7 +1124,10 @@ public class JHostty extends Application {
                     .jhostty-settings .slider .track { -fx-background-color: %s; -fx-background-radius: 3; }
                     .jhostty-settings .slider .thumb { -fx-background-color: %s; }
                     .jhostty-palette-list { -fx-background-color: transparent; -fx-background: transparent; }
-                    .jhostty-palette-list .list-cell { -fx-text-fill: %s; -fx-background-color: transparent; -fx-padding: 2 8; }
+                    .jhostty-palette-list .list-cell { -fx-background-color: transparent; -fx-padding: 2 8; }
+                    .jhostty-palette-list .jhostty-palette-label { -fx-text-fill: %s; }
+                    .jhostty-palette-list .jhostty-palette-cat { -fx-text-fill: %s; }
+                    .jhostty-palette-list .jhostty-palette-shortcut { -fx-text-fill: %s; }
                     .jhostty-palette-list .list-cell:selected { -fx-background-color: %s; -fx-background-radius: 4; }
                     .jhostty-palette-list .list-cell:selected .label { -fx-text-fill: %s; }
                     """.formatted(
@@ -1155,7 +1158,7 @@ public class JHostty extends Application {
                         dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
                         dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)",
                         // palette list
-                        fgCss, selCss, selText
+                        fgCss, fgCss, fgCss, selCss, selText
                         ));
         } catch (IOException _) {}
     }
@@ -2393,16 +2396,20 @@ public class JHostty extends Application {
                 super.updateItem(item, empty);
                 if (empty || item == null) { setGraphic(null); setText(null); return; }
                 var lbl = new Label(item.label());
-                lbl.setStyle("-fx-font-size: 14;");
+                lbl.setStyle("-fx-font-size: 13;");
+                lbl.getStyleClass().add("jhostty-palette-label");
                 var cat = new Label(item.category());
-                cat.setStyle("-fx-font-size: 11; -fx-padding: 1 6; -fx-background-color: rgba(255,255,255,0.08); -fx-background-radius: 3;");
+                cat.setStyle("-fx-font-size: 11;");
+                cat.getStyleClass().add("jhostty-palette-cat");
                 var spacer = new Region();
                 HBox.setHgrow(spacer, Priority.ALWAYS);
                 var sc2 = new Label(item.shortcut());
                 sc2.setStyle("-fx-font-size: 12;");
-                var row = new HBox(8, lbl, cat, spacer, sc2);
+                sc2.getStyleClass().add("jhostty-palette-shortcut");
+                var row = new HBox(6, lbl, cat, spacer, sc2);
                 row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
                 setGraphic(row);
+                setText(null);
             }
         });
 
