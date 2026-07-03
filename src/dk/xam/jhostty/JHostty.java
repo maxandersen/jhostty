@@ -1663,6 +1663,7 @@ public class JHostty extends Application {
 
         // Show pane numbers when Cmd/Ctrl is held (only if multiple panes)
         scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            debug("KEY_PRESSED: code=" + e.getCode() + " meta=" + e.isMetaDown() + " ctrl=" + e.isControlDown() + " shortcut=" + e.isShortcutDown() + " modifier=" + e.getCode().isModifierKey());
             if (e.isShortcutDown() && !e.isShiftDown() && !e.isAltDown()) {
                 var ws = activeWorkspace();
                 if (ws != null && ws.allLeaves().size() > 1) ws.showPaneNumbers();
