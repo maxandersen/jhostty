@@ -2384,27 +2384,27 @@ public class JHostty extends Application {
 
         var searchField = new TextField();
         searchField.setPromptText("Type a command, tab name, or theme\u2026");
-        searchField.setStyle("-fx-font-size: 15; -fx-background-color: rgba(255,255,255,0.08); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.15); -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 8 12;");
+        searchField.setStyle("-fx-font-size: 17; -fx-background-color: rgba(255,255,255,0.08); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.15); -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 8 12;");
 
         var resultList = new ListView<PaletteItem>();
         resultList.getItems().addAll(allItems);
         resultList.setPrefHeight(350);
         resultList.getStyleClass().add("jhostty-palette-list");
-        resultList.setFixedCellSize(28);
+        resultList.setFixedCellSize(32);
         resultList.setCellFactory(_ -> new javafx.scene.control.ListCell<>() {
             @Override protected void updateItem(PaletteItem item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) { setGraphic(null); setText(null); return; }
                 var lbl = new Label(item.label());
-                lbl.setStyle("-fx-font-size: 13;");
+                lbl.setStyle("-fx-font-size: 15;");
                 lbl.getStyleClass().add("jhostty-palette-label");
                 var cat = new Label(item.category());
-                cat.setStyle("-fx-font-size: 11;");
+                cat.setStyle("-fx-font-size: 13;");
                 cat.getStyleClass().add("jhostty-palette-cat");
                 var spacer = new Region();
                 HBox.setHgrow(spacer, Priority.ALWAYS);
                 var sc2 = new Label(item.shortcut());
-                sc2.setStyle("-fx-font-size: 12;");
+                sc2.setStyle("-fx-font-size: 14;");
                 sc2.getStyleClass().add("jhostty-palette-shortcut");
                 var row = new HBox(6, lbl, cat, spacer, sc2);
                 row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
