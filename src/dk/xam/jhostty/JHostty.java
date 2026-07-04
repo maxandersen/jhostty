@@ -181,7 +181,7 @@ public class JHostty extends Application {
         if (demoMode) { newDemoWindow(); }
         else { restoreLayout(); }
         if (IS_MAC) {
-            Platform.runLater(() -> MacUtils.setAppName("jhostty"));
+            Platform.runLater(() -> { MacUtils.setAppName("jhostty"); MacUtils.setDockIcon(JHostty.class); });
         }
     }
 

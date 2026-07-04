@@ -1,6 +1,8 @@
 package dk.xam.jhostty;
 
 import java.lang.foreign.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public final class MacUtils {
     private MacUtils() {}
@@ -34,6 +36,50 @@ public final class MacUtils {
             var appMenuItem = (MemorySegment) sendL.invoke(mainMenu, (MemorySegment) sel.invoke(arena.allocateFrom("itemAtIndex:")), 0L);
             var appMenu = (MemorySegment) send0.invoke(appMenuItem, (MemorySegment) sel.invoke(arena.allocateFrom("submenu")));
             sendV.invoke(appMenu, (MemorySegment) sel.invoke(arena.allocateFrom("setTitle:")), nsStr);
+        } catch (Throwable _) {}
+    }
+
+    public static void setDockIcon(Class<?> resourceClass) {
+        try {
+            var iconStream = resourceClass.getResourceAsStream("/icon.png");
+            if (iconStream == null) return;
+            var iconBytes = iconStream.readAllBytes();
+            iconStream.close();
+
+            var tmpIcon = Files.createTempFile("jhostty-icon", ".png");
+            tmpIcon.toFile().deleteOnExit();
+            Files.write(tmpIcon, iconBytes);
+
+            var linker = Linker.nativeLinker();
+            var rt = SymbolLookup.libraryLookup("libobjc.dylib", Arena.global());
+            var arena = Arena.global();
+            var cls = linker.downcallHandle(rt.find("objc_getClass").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+            var sel = linker.downcallHandle(rt.find("sel_registerName").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+            var send0 = linker.downcallHandle(rt.find("objc_msgSend").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+            var send1 = linker.downcallHandle(rt.find("objc_msgSend").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+            var sendV = linker.downcallHandle(rt.find("objc_msgSend").orElseThrow(),
+                    FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+
+            var nsStr = (MemorySegment) send1.invoke(
+                    (MemorySegment) send0.invoke((MemorySegment) cls.invoke(arena.allocateFrom("NSString")),
+                            (MemorySegment) sel.invoke(arena.allocateFrom("alloc"))),
+                    (MemorySegment) sel.invoke(arena.allocateFrom("initWithUTF8String:")),
+                    arena.allocateFrom(tmpIcon.toString()));
+
+            var nsImage = (MemorySegment) send1.invoke(
+                    (MemorySegment) send0.invoke((MemorySegment) cls.invoke(arena.allocateFrom("NSImage")),
+                            (MemorySegment) sel.invoke(arena.allocateFrom("alloc"))),
+                    (MemorySegment) sel.invoke(arena.allocateFrom("initWithContentsOfFile:")),
+                    nsStr);
+
+            var nsApp = (MemorySegment) send0.invoke(
+                    (MemorySegment) cls.invoke(arena.allocateFrom("NSApplication")),
+                    (MemorySegment) sel.invoke(arena.allocateFrom("sharedApplication")));
+            sendV.invoke(nsApp, (MemorySegment) sel.invoke(arena.allocateFrom("setApplicationIconImage:")), nsImage);
         } catch (Throwable _) {}
     }
 }

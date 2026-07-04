@@ -1,3 +1,6 @@
 terminal-themes/.cache/
 .cache/
 jhostty/target/
+.pi/
+.DS_Store
+target/
