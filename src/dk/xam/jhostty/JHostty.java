@@ -185,6 +185,19 @@ public class JHostty extends Application {
         }
     }
 
+    @Override
+    public void stop() {
+        debug("stop: cleaning up resources");
+        shuttingDown = true;
+        if (zmxRefreshTimer != null) zmxRefreshTimer.stop();
+        var allWindows = new ArrayList<>(windows);
+        for (var w : allWindows) {
+            var tp = getTabPane(w);
+            if (tp != null) closeAllTerminalsIn(tp);
+        }
+        saveState();
+    }
+
     static void quit() {
         debug("quit: saving state before exit");
         saveState();
@@ -358,39 +371,6 @@ public class JHostty extends Application {
         return new MenuBar(shellMenu, viewMenu, windowMenu, helpMenu);
     }
 
-    // --- Context Menu ---
-
-    static ContextMenu createContextMenu(TerminalView view) {
-        var sc = SHORTCUT_SYMBOL;
-        var sh = SHIFT_SYMBOL;
-        var newWindowItem = new MenuItem("New Window           " + sc + "N");
-        newWindowItem.setOnAction(_ -> newWindow());
-        var newTabItem = new MenuItem("New Tab                 " + sc + "T");
-        newTabItem.setOnAction(_ -> newTab(findTabPane(view)));
-        var splitH = new MenuItem("Add Column    " + sc + "D");
-        splitH.setOnAction(_ -> split(view, Orientation.VERTICAL));
-        var splitV = new MenuItem("Add Row        " + sc + sh + "D");
-        splitV.setOnAction(_ -> split(view, Orientation.HORIZONTAL));
-        var zoomIn = new MenuItem("Zoom In                 " + sc + "+");
-        zoomIn.setOnAction(_ -> zoomTerminal(view, 1));
-        var zoomOut = new MenuItem("Zoom Out              " + sc + "\u2212");
-        zoomOut.setOnAction(_ -> zoomTerminal(view, -1));
-        var zoomReset = new MenuItem("Reset Zoom           " + sc + "0");
-        zoomReset.setOnAction(_ -> setTerminalZoom(view, baseFontSize));
-        var copy = new MenuItem("Copy                      " + sc + "C");
-        copy.setOnAction(_ -> view.copySelection());
-        var paste = new MenuItem("Paste                     " + sc + "V");
-        paste.setOnAction(_ -> view.pasteClipboard());
-        var toggleSidebar = new MenuItem("Toggle Sidebar       " + sc + "/");
-        toggleSidebar.setOnAction(_ -> toggleSidebar());
-        var readOnlyItem = new MenuItem("Toggle Read-Only");
-        readOnlyItem.setOnAction(_ -> toggleReadOnly());
-        return new ContextMenu(
-                newWindowItem, newTabItem, splitH, splitV,
-                new SeparatorMenuItem(), zoomIn, zoomOut, zoomReset,
-                new SeparatorMenuItem(), copy, paste,
-                new SeparatorMenuItem(), readOnlyItem, toggleSidebar);
-    }
 
     // --- Tab Management ---
 
@@ -427,19 +407,61 @@ public class JHostty extends Application {
         tab.setContent(workspace);
         setupTabGraphic(tab, tabPane);
         workspace.focusedPaneProperty().addListener((_, _, pane) -> {
-            if (pane != null && pane.content() instanceof TerminalView tv) {
-                activeTerminal = tv;
-                var stg = findStageFor(tv);
-                if (stg != null) { stg.setTitle(tv.getTitle() != null ? tv.getTitle() : "jhostty"); rebuildWindowMenus(); }
-                rebuildAllSidebars();
-                tab.textProperty().unbind();
-                tab.textProperty().bind(tv.titleProperty());
-            }
+            bindTabToPane(tab, pane);
         });
+        // Bind to initial focused pane if already set
+        var initial = workspace.getFocusedPane();
+        if (initial != null) bindTabToPane(tab, initial);
         return tab;
     }
 
-    /** Set up tab with close handler and deferred + button injection. */
+    private static void bindTabToPane(Tab tab, LeafPane pane) {
+        if (pane != null && pane.content() instanceof TerminalView tv) {
+            activeTerminal = tv;
+            var stg = findStageFor(tv);
+            if (stg != null) { stg.setTitle(tv.getTitle() != null ? tv.getTitle() : "jhostty"); rebuildWindowMenus(); }
+            rebuildAllSidebars();
+            tab.textProperty().unbind();
+            tab.textProperty().bind(tv.titleProperty());
+        }
+    }
+
+    static ContextMenu createPaneContextMenu(LeafPane leaf, SplitWorkspace workspace, TabPane tabPane) {
+        var newTab = new MenuItem("New Tab"); newTab.setOnAction(_ -> newTabNext(tabPane));
+        var splitH = new MenuItem("Add Column"); splitH.setOnAction(_ -> { workspace.focusPane(leaf); splitActive(Orientation.VERTICAL); });
+        var splitV = new MenuItem("Add Row"); splitV.setOnAction(_ -> { workspace.focusPane(leaf); splitActive(Orientation.HORIZONTAL); });
+        var closePane = new MenuItem("Close Pane"); closePane.setOnAction(_ -> { workspace.focusPane(leaf); workspace.closeFocused(); });
+        var zoom = new MenuItem("Zoom/Unzoom Pane"); zoom.setOnAction(_ -> { workspace.focusPane(leaf); workspace.toggleZoom(); });
+        var readOnly = new MenuItem("Toggle Read-Only");
+        readOnly.setOnAction(_ -> {
+            if (leaf.content() instanceof TerminalView tv) setReadOnly(tv, !readOnlyTerminals.contains(tv));
+        });
+        return new ContextMenu(
+                newTab, splitH, splitV,
+                new SeparatorMenuItem(), zoom, readOnly,
+                new SeparatorMenuItem(), closePane);
+    }
+
+    static ContextMenu createTabContextMenu(Tab tab, TabPane tabPane) {
+        var sc = SHORTCUT_SYMBOL;
+        var sh = SHIFT_SYMBOL;
+        var newTab = new MenuItem("New Tab"); newTab.setOnAction(_ -> newTabNext(tabPane));
+        var newWin = new MenuItem("New Window"); newWin.setOnAction(_ -> newWindow());
+        var closeTab = new MenuItem("Close Tab"); closeTab.setOnAction(_ -> { closeTerminalsIn(tab.getContent()); tabPane.getTabs().remove(tab); if (tabPane.getTabs().isEmpty()) { var stg = findStage(tabPane); if (stg != null) stg.close(); } });
+        var closeOthers = new MenuItem("Close Other Tabs"); closeOthers.setOnAction(_ -> closeOtherTabs(tabPane));
+        var closeLeft = new MenuItem("Close Tabs to the Left"); closeLeft.setOnAction(_ -> closeTabsToLeft(tabPane));
+        var closeRight = new MenuItem("Close Tabs to the Right"); closeRight.setOnAction(_ -> closeTabsToRight(tabPane));
+        var splitH = new MenuItem("Add Column"); splitH.setOnAction(_ -> splitActive(Orientation.VERTICAL));
+        var splitV = new MenuItem("Add Row"); splitV.setOnAction(_ -> splitActive(Orientation.HORIZONTAL));
+        var readOnlyAll = new MenuItem("Toggle Tab Read-Only"); readOnlyAll.setOnAction(_ -> toggleTabReadOnly());
+        return new ContextMenu(
+                newTab, newWin,
+                new SeparatorMenuItem(), splitH, splitV,
+                new SeparatorMenuItem(), closeTab, closeOthers, closeLeft, closeRight,
+                new SeparatorMenuItem(), readOnlyAll);
+    }
+
+    /** Set up tab with close handler, context menu, and deferred + button injection. */
     static void setupTabGraphic(Tab tab, TabPane tabPane) {
         tab.setClosable(true);
         tab.setOnClosed(_ -> {
@@ -449,8 +471,13 @@ public class JHostty extends Application {
                 if (stg != null) stg.close();
             }
         });
-        // Inject + button after skin is created (needs triple runLater)
-        Platform.runLater(() -> Platform.runLater(() -> Platform.runLater(() -> injectAddButton(tab, tabPane))));
+        tab.setContextMenu(createTabContextMenu(tab, tabPane));
+        // Inject + button once the tab's skin/header is available
+        tab.getTabPane();
+        tabPane.skinProperty().addListener((_, _, skin) -> {
+            if (skin != null) Platform.runLater(() -> injectAddButton(tab, tabPane));
+        });
+        if (tabPane.getSkin() != null) Platform.runLater(() -> injectAddButton(tab, tabPane));
     }
 
     private static void injectAddButton(Tab tab, TabPane tabPane) {
@@ -835,8 +862,24 @@ public class JHostty extends Application {
                     Platform.runLater(() -> removeTerminal(view, null, null));
                 }
             });
-            var ctx = createContextMenu(view);
-            view.setOnContextMenuRequested(e -> ctx.show(view, e.getScreenX(), e.getScreenY()));
+            // Context menu on terminal — only when the TUI app isn't tracking mouse events
+            final ContextMenu[] ctxHolder = {null};
+            view.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, e -> {
+                // Dismiss context menu on any click
+                if (ctxHolder[0] != null && ctxHolder[0].isShowing()) {
+                    ctxHolder[0].hide();
+                    ctxHolder[0] = null;
+                    if (e.getButton() != javafx.scene.input.MouseButton.SECONDARY) e.consume();
+                }
+            });
+            view.setOnContextMenuRequested(e -> {
+                if (!isMouseTrackingEnabled(view)) {
+                    if (ctxHolder[0] != null && ctxHolder[0].isShowing()) ctxHolder[0].hide();
+                    ctxHolder[0] = createTerminalContextMenu(view);
+                    ctxHolder[0].setAutoHide(true);
+                    ctxHolder[0].show(view, e.getScreenX(), e.getScreenY());
+                }
+            });
             view.setOnDragOver(e -> {
                 var db = e.getDragboard();
                 if (db.hasString() || db.hasFiles() || db.hasUrl()) e.acceptTransferModes(TransferMode.COPY);
@@ -970,156 +1013,17 @@ public class JHostty extends Application {
         }
     }
 
-    /** Pastel overlay opacity — subtle in dark themes, more visible in light. */
-    static double pastelOpacity(TerminalTheme theme) {
-        var bg = theme.background();
-        var lum = bg.getRed() * 0.299 + bg.getGreen() * 0.587 + bg.getBlue() * 0.114;
-        return lum < 0.5 ? 0.15 : 0.25;
-    }
-
-    /** Focus ring color derived from theme. */
-    static Color focusRingColor(TerminalTheme theme) {
-        var bg = theme.background();
-        var lum = bg.getRed() * 0.299 + bg.getGreen() * 0.587 + bg.getBlue() * 0.114;
-        var fg = theme.foreground();
-        return fg.deriveColor(0, 1, 1, lum < 0.5 ? 0.4 : 0.65);
-    }
-
-    /** Divider/gutter color — slightly offset from terminal bg. */
-    static Color dividerColor(Color bg) {
-        return Color.TRANSPARENT;
-    }
-
-    static String colorToCss(Color c) {
-        return String.format("rgba(%d,%d,%d,%.2f)",
-                (int)(c.getRed()*255), (int)(c.getGreen()*255), (int)(c.getBlue()*255), c.getOpacity());
-    }
+    // Delegate to ThemeCss
+    static double pastelOpacity(TerminalTheme theme) { return ThemeCss.pastelOpacity(theme.background()); }
+    static Color focusRingColor(TerminalTheme theme) { return ThemeCss.focusRingColor(theme.background(), theme.foreground()); }
+    static Color dividerColor(Color bg) { return ThemeCss.dividerColor(bg); }
+    static String colorToCss(Color c) { return ThemeCss.colorToCss(c); }
 
     static void writeCss() {
         if (cssPath == null) return;
-        var bg = currentTheme.background();
-        var fg = currentTheme.foreground();
-        var lum = bg.getRed() * 0.299 + bg.getGreen() * 0.587 + bg.getBlue() * 0.114;
-        var dark = lum < 0.5;
-        var menuBg = dark ? bg.brighter().brighter() : bg.darker();
-        var menuBgCss = String.format("rgba(%d,%d,%d,0.95)",
-                (int)(menuBg.getRed()*255), (int)(menuBg.getGreen()*255), (int)(menuBg.getBlue()*255));
-        var fgCss = colorToCss(fg);
-        var borderCss = dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.15)";
-        var sepCss = dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)";
-        var selBg = currentTheme.selectionColor();
-        var selCss = String.format("rgba(%d,%d,%d,0.8)",
-                (int)(selBg.getRed()*255), (int)(selBg.getGreen()*255), (int)(selBg.getBlue()*255));
-        var selText = dark ? "white" : "black";
-        var dividerCss = dark ? "#555555" : "#bbbbbb";
-        var tabBarColor = dark ? bg.darker() : bg.darker();
-        var tabBarBg = colorToCss(tabBarColor);
-        var tabSelectedColor = dark ? bg.brighter() : bg.brighter();
-        var tabSelectedBg = colorToCss(tabSelectedColor);
-        var tabTextCss = colorToCss(fg.deriveColor(0, 1, 1, 0.5));
-        var tabSelectedTextCss = colorToCss(fg.deriveColor(0, 1, 1, 0.85));
-        var tabCloseCss = colorToCss(fg.deriveColor(0, 1, 1, 0.3));
-        var tabCloseHoverCss = colorToCss(fg.deriveColor(0, 1, 1, 0.7));
-        try {
-            Files.writeString(cssPath, """
-                    .single-tab > .tab-header-area { -fx-max-height: 0; -fx-pref-height: 0; -fx-min-height: 0; visibility: hidden; }
-                    .tab-pane > .tab-header-area > .control-buttons-tab { visibility: hidden; -fx-padding: 0; -fx-max-width: 0; }
-                    .tab-pane { -fx-background-color: %s; }
-                    .tab-pane > .tab-content-area { -fx-background-color: %s; }
-                    .tab-pane > .tab-header-area { -fx-background-color: %s; -fx-padding: 0; }
-                    .tab-pane > .tab-header-area > .headers-region { -fx-background-color: transparent; }
-                    .tab-pane > .tab-header-area > .tab-header-background { -fx-background-color: %s; }
-                    .tab-pane .tab { -fx-background-color: transparent; -fx-background-radius: 6 6 0 0; -fx-background-insets: 2 1 0 1; -fx-padding: 4 12 4 12; -fx-border-color: transparent; }
-                    .tab-pane .tab:selected { -fx-background-color: %s; }
-                    .tab-pane .tab .tab-label { -fx-text-fill: %s; -fx-font-size: 11; }
-                    .tab-pane .tab:selected .tab-label { -fx-text-fill: %s; }
-                    .tab-pane .tab .tab-close-button { -fx-background-color: %s; -fx-shape: "M 0,0 L 4,4 M 4,0 L 0,4"; -fx-padding: 0 4 0 4; }
-                    .tab-pane .tab:hover .tab-close-button { -fx-background-color: %s; }
-                    .split-pane > .split-pane-divider { -fx-background-color: %s; -fx-padding: 1; }
-                    .context-menu { -fx-background-color: %s; -fx-background-radius: 8; -fx-border-radius: 8; -fx-border-color: %s; -fx-border-width: 0.5; -fx-padding: 4 0 4 0; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 12, 0, 0, 4); }
-                    .context-menu .menu-item { -fx-padding: 4 16 4 16; }
-                    .context-menu .menu-item .label { -fx-text-fill: %s; -fx-font-size: 13; }
-                    .context-menu .menu-item:focused { -fx-background-color: %s; -fx-background-radius: 4; -fx-background-insets: 0 4 0 4; }
-                    .context-menu .menu-item:focused .label { -fx-text-fill: %s; }
-                    .context-menu .separator { -fx-padding: 4 8 4 8; }
-                    .context-menu .separator .line { -fx-border-color: %s; -fx-border-width: 0.5 0 0 0; }
-                    .jhostty-content-split { -fx-background-color: %s; }
-                    .jhostty-content-split > .split-pane-divider { -fx-background-color: %s; -fx-padding: 0 1 0 1; }
-                    .jhostty-sidebar { -fx-background-color: %s; }
-                    .jhostty-sidebar .label { -fx-text-fill: %s; }
-                    .jhostty-sidebar .separator .line { -fx-border-color: %s; -fx-border-width: 0.5 0 0 0; }
-                    .jhostty-sidebar .tree-cell { -fx-text-fill: %s; -fx-background-color: transparent; -fx-font-size: 12; -fx-padding: 3 8 3 4; }
-                    .jhostty-sidebar .tree-cell:selected { -fx-background-color: %s; -fx-text-fill: %s; }
-                    .jhostty-sidebar .tree-cell:empty { -fx-background-color: transparent; }
-                    .jhostty-sidebar .tree-disclosure-node .arrow { -fx-background-color: %s; }
-                    .scroll-bar { -fx-background-color: transparent; -fx-padding: 0; }
-                    .scroll-bar .track { -fx-background-color: transparent; -fx-border-color: transparent; -fx-background-radius: 0; }
-                    .scroll-bar .thumb { -fx-background-color: %s; -fx-background-radius: 4; -fx-background-insets: 1; }
-                    .scroll-bar .thumb:hover { -fx-background-color: %s; }
-                    .scroll-bar .increment-button, .scroll-bar .decrement-button { -fx-padding: 0; -fx-background-color: transparent; }
-                    .scroll-bar .increment-arrow, .scroll-bar .decrement-arrow { -fx-padding: 0; -fx-shape: ""; }
-                    .scroll-bar:vertical { -fx-pref-width: 6; }
-                    .scroll-bar:horizontal { -fx-pref-height: 6; }
-                    .scroll-bar:vertical:hover { -fx-pref-width: 8; }
-                    .scroll-bar:horizontal:hover { -fx-pref-height: 8; }
-                    .jhostty-settings { -fx-background-color: %s; -fx-border-color: %s; -fx-border-width: 0 0 0 1; }
-                    .jhostty-settings .label { -fx-text-fill: %s; }
-                    .jhostty-settings .check-box { -fx-text-fill: %s; }
-                    .jhostty-settings .check-box .box { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 3; -fx-background-radius: 3; }
-                    .jhostty-settings .check-box:selected .box .mark { -fx-background-color: %s; }
-                    .jhostty-settings .separator .line { -fx-border-color: %s; -fx-border-width: 0.5 0 0 0; }
-                    .jhostty-settings .text-field { -fx-background-color: %s; -fx-text-fill: %s; -fx-border-color: %s; -fx-border-radius: 4; -fx-background-radius: 4; -fx-prompt-text-fill: %s; }
-                    .jhostty-settings .list-view { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 4; -fx-background-radius: 4; }
-                    .jhostty-settings .list-view .list-cell { -fx-text-fill: %s; -fx-background-color: transparent; -fx-font-size: 11; }
-                    .jhostty-settings .list-view .list-cell:filled:hover { -fx-background-color: %s; }
-                    .jhostty-settings .list-view .list-cell:filled:selected { -fx-background-color: %s; -fx-text-fill: %s; }
-                    .jhostty-settings .combo-box { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 4; -fx-background-radius: 4; }
-                    .jhostty-settings .combo-box .list-cell { -fx-text-fill: %s; -fx-font-size: 11; }
-                    .jhostty-settings .combo-box-popup .list-view { -fx-background-color: %s; -fx-border-color: %s; -fx-border-radius: 4; -fx-background-radius: 4; }
-                    .jhostty-settings .combo-box-popup .list-cell { -fx-text-fill: %s; -fx-background-color: transparent; -fx-font-size: 11; }
-                    .jhostty-settings .combo-box-popup .list-cell:filled:hover { -fx-background-color: %s; }
-                    .jhostty-settings .combo-box-popup .list-cell:filled:selected { -fx-background-color: %s; -fx-text-fill: %s; }
-                    .jhostty-settings .slider .track { -fx-background-color: %s; -fx-background-radius: 3; }
-                    .jhostty-settings .slider .thumb { -fx-background-color: %s; }
-                    .jhostty-palette-list { -fx-background-color: transparent; -fx-background: transparent; }
-                    .jhostty-palette-list .list-cell { -fx-background-color: transparent; -fx-padding: 2 8; }
-                    .jhostty-palette-list .jhostty-palette-label { -fx-text-fill: %s; }
-                    .jhostty-palette-list .jhostty-palette-cat { -fx-text-fill: %s; }
-                    .jhostty-palette-list .jhostty-palette-shortcut { -fx-text-fill: %s; }
-                    .jhostty-palette-list .list-cell:selected { -fx-background-color: %s; -fx-background-radius: 4; }
-                    .jhostty-palette-list .list-cell:selected .label { -fx-text-fill: %s; }
-                    """.formatted(
-                        dividerCss, dividerCss,
-                        tabBarBg, tabBarBg, tabSelectedBg, tabTextCss, tabSelectedTextCss,
-                        tabCloseCss, tabCloseHoverCss,
-                        dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss,
-                        dividerCss, borderCss, menuBgCss, fgCss, selCss, selText, fgCss,
-                        fgCss, sepCss,
-                        // scrollbar
-                        dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)",
-                        dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)",
-                        // settings panel
-                        menuBgCss, borderCss, fgCss, fgCss,
-                        dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", borderCss, fgCss, sepCss,
-                        // text-field
-                        dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", fgCss, borderCss,
-                        dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)",
-                        // list-view
-                        dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderCss, fgCss,
-                        dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
-                        selCss, selText,
-                        // combo-box
-                        dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", borderCss, fgCss,
-                        menuBgCss, borderCss, fgCss,
-                        dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
-                        selCss, selText,
-                        dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
-                        dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)",
-                        // palette list
-                        fgCss, fgCss, fgCss, selCss, selText
-                        ));
-        } catch (IOException _) {}
+        ThemeCss.write(cssPath, currentTheme.background(), currentTheme.foreground(), currentTheme.selectionColor());
     }
+
 
     static void forEachTerminal(java.util.function.Consumer<TerminalView> action) {
         for (var w : windows) {
@@ -1172,13 +1076,18 @@ public class JHostty extends Application {
     // --- Workspace Toolbar ---
 
     static HBox createWorkspaceToolbar(TabPane tabs) {
-        var btnLeft   = toolBtn("\u21E4", "Add Column Left",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.LEFT); });
-        var btnRight  = toolBtn("\u21E5", "Add Column Right", () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.RIGHT); });
-        var btnUp     = toolBtn("\u2912", "Add Row Above",    () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.TOP); });
-        var btnDown   = toolBtn("\u2913", "Add Row Below",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.BOTTOM); });
-        var btnClose  = toolBtn("\u2715", "Close Pane",  () -> { var ws = activeWorkspace(); if (ws != null) ws.closeFocused(); });
-        var btnZoom   = toolBtn("\u2922", "Zoom Toggle", () -> { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); });
-        var btnNewWin = toolBtn("\u2398", "New Window",  () -> newWindow());
+        // SVG icons – all 12×12 viewbox, consistent 1.5px visual stroke weight
+        // Left: vertical split with left pane highlighted (filled left, outlined right)
+        var btnLeft   = toolBtnSvg("M0 0h5v12H0ZM7 0v12h5v-1.5H8.5v-9H12V0Z", "Add Column Left",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.LEFT); });
+        // Right: vertical split with right pane highlighted (outlined left, filled right)
+        var btnRight  = toolBtnSvg("M0 0v12h5v-1.5H1.5v-9H5V0ZM7 0h5v12H7Z", "Add Column Right", () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.RIGHT); });
+        // Up: horizontal split with top pane highlighted (filled top, outlined bottom)
+        var btnUp     = toolBtnSvg("M0 0h12v5H0ZM0 7h12v5h-1.5V8.5h-9V12H0Z", "Add Row Above",    () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.TOP); });
+        // Down: horizontal split with bottom pane highlighted (outlined top, filled bottom)
+        var btnDown   = toolBtnSvg("M0 0h12v5h-1.5V1.5h-9V5H0ZM0 7h12v5H0Z", "Add Row Below",  () -> { var ws = activeWorkspace(); if (ws != null) ws.splitFocused(javafx.geometry.Side.BOTTOM); });
+        var btnClose  = toolBtnSvg("M1.05 0L0 1.05 4.95 6 0 10.95 1.05 12 6 7.05 10.95 12 12 10.95 7.05 6 12 1.05 10.95 0 6 4.95Z", "Close Pane",  () -> { var ws = activeWorkspace(); if (ws != null) ws.closeFocused(); });
+        var btnZoom   = toolBtnSvg("M0 0h4.5v1.5h-3v3H0ZM12 0H7.5v1.5h3v3H12ZM0 12h4.5v-1.5h-3v-3H0ZM12 12H7.5v-1.5h3v-3H12Z", "Zoom Toggle", () -> { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); });
+        var btnNewWin = toolBtnSvg("M1 0C.45 0 0 .45 0 1v10c0 .55.45 1 1 1h10c.55 0 1-.45 1-1V1c0-.55-.45-1-1-1ZM1.5 1.5h9v9h-9ZM5.25 4v2.25H3v1.5h2.25V10h1.5V7.75H9v-1.5H6.75V4Z", "New Window",  () -> newWindow());
 
         var spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -1194,36 +1103,53 @@ public class JHostty extends Application {
         return toolbar;
     }
 
-    static Button toolBtn(String glyph, String tooltip, Runnable action) {
-        var btn = new Button(glyph);
-        btn.setStyle("-fx-background-color: transparent; -fx-text-fill: #999; -fx-font-size: 17; -fx-padding: 2 6; -fx-cursor: hand;");
+    /** Create an SVG-icon toolbar button. Shape and hover styling handled via CSS style classes. */
+    static Button toolBtnSvg(String svgPath, String tooltip, Runnable action) {
+        var icon = new Region();
+        var shape = new javafx.scene.shape.SVGPath(); shape.setContent(svgPath);
+        icon.setShape(shape);
+        icon.getStyleClass().add("tool-icon");
+        var btn = new Button();
+        btn.setGraphic(icon);
+        btn.getStyleClass().add("tool-btn");
         btn.setTooltip(new Tooltip(tooltip));
         btn.setFocusTraversable(false);
         btn.setOnAction(_ -> action.run());
-        btn.setOnMouseEntered(_ -> btn.setStyle("-fx-background-color: rgba(255,255,255,0.1); -fx-background-radius: 4; -fx-text-fill: #ddd; -fx-font-size: 17; -fx-padding: 2 6; -fx-cursor: hand;"));
-        btn.setOnMouseExited(_ -> btn.setStyle("-fx-background-color: transparent; -fx-text-fill: #999; -fx-font-size: 17; -fx-padding: 2 6; -fx-cursor: hand;"));
         return btn;
     }
 
-    static Separator toolSep() {
-        var sep = new Separator(Orientation.VERTICAL);
-        sep.setPadding(new javafx.geometry.Insets(2, 2, 2, 2));
-        sep.setStyle("-fx-background-color: rgba(255,255,255,0.1);");
-        return sep;
+    /** Create an SVG-icon close button (smaller, for panels/sidebar). */
+    static Button closeBtnSvg(String svgPath) {
+        var icon = new Region();
+        var shape = new javafx.scene.shape.SVGPath(); shape.setContent(svgPath);
+        icon.getStyleClass().add("close-icon");
+        var btn = new Button();
+        btn.setGraphic(icon);
+        btn.getStyleClass().add("close-btn");
+        btn.setFocusTraversable(false);
+        return btn;
+    }
+
+    static Region toolSep() {
+        var spacer = new Region();
+        spacer.setMinWidth(6);
+        spacer.setPrefWidth(6);
+        spacer.setMaxWidth(6);
+        return spacer;
     }
 
     // --- Settings Panel ---
 
     static VBox createSettingsPanel(TabPane tabs) {
         var title = new Label("Settings");
-        title.setStyle("-fx-font-size: 14; -fx-font-weight: bold;");
+        title.getStyleClass().add("settings-title");
 
         var pastelLabel = new Label("Pastel Opacity");
-        pastelLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
-        var pastelSlider = safeSlider(0, 0.5, pastelOpacity(currentTheme));
+        pastelLabel.getStyleClass().add("settings-label");
+        var pastelSlider = safeSlider(0, 0.9, pastelOpacity(currentTheme));
         pastelSlider.setPrefWidth(180);
         var pastelValue = new Label(String.format("%.0f%%", pastelSlider.getValue() * 100));
-        pastelValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
+        pastelValue.getStyleClass().add("settings-value");
         pastelSlider.valueProperty().addListener((_, _, v) -> {
             pastelValue.setText(String.format("%.0f%%", v.doubleValue() * 100));
             forEachWorkspace(tabs, ws -> ws.setPastelOpacity(v.doubleValue()));
@@ -1232,11 +1158,11 @@ public class JHostty extends Application {
         pastelRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         var gutterLabel = new Label("Gutter Width");
-        gutterLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
+        gutterLabel.getStyleClass().add("settings-label");
         var gutterSlider = safeSlider(0, 20, SplitWorkspace.GUTTER);
         gutterSlider.setPrefWidth(180);
         var gutterValue = new Label(String.format("%.0fpx", gutterSlider.getValue()));
-        gutterValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
+        gutterValue.getStyleClass().add("settings-value");
         gutterSlider.valueProperty().addListener((_, _, v) -> {
             gutterValue.setText(String.format("%.0fpx", v.doubleValue()));
             forEachWorkspace(tabs, ws -> ws.setGutter(v.doubleValue()));
@@ -1245,11 +1171,11 @@ public class JHostty extends Application {
         gutterRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         var radiusLabel = new Label("Corner Radius");
-        radiusLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
+        radiusLabel.getStyleClass().add("settings-label");
         var radiusSlider = safeSlider(0, 20, SplitWorkspace.PANE_RADIUS);
         radiusSlider.setPrefWidth(180);
         var radiusValue = new Label(String.format("%.0fpx", radiusSlider.getValue()));
-        radiusValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
+        radiusValue.getStyleClass().add("settings-value");
         radiusSlider.valueProperty().addListener((_, _, v) -> {
             radiusValue.setText(String.format("%.0fpx", v.doubleValue()));
             forEachWorkspace(tabs, ws -> ws.setPaneRadius(v.doubleValue()));
@@ -1258,11 +1184,11 @@ public class JHostty extends Application {
         radiusRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         var headerLabel = new Label("Header Height");
-        headerLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
+        headerLabel.getStyleClass().add("settings-label");
         var headerSlider = safeSlider(0, 40, SplitWorkspace.HEADER_H);
         headerSlider.setPrefWidth(180);
         var headerValue = new Label(String.format("%.0fpx", headerSlider.getValue()));
-        headerValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
+        headerValue.getStyleClass().add("settings-value");
         headerSlider.valueProperty().addListener((_, _, v) -> {
             headerValue.setText(String.format("%.0fpx", v.doubleValue()));
             forEachWorkspace(tabs, ws -> ws.setHeaderHeight(v.doubleValue()));
@@ -1271,11 +1197,11 @@ public class JHostty extends Application {
         headerRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         var ringLabel = new Label("Focus Ring");
-        ringLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
+        ringLabel.getStyleClass().add("settings-label");
         var ringSlider = safeSlider(0, 5, SplitWorkspace.FOCUS_RING_WIDTH);
         ringSlider.setPrefWidth(180);
         var ringValue = new Label(String.format("%.1fpx", ringSlider.getValue()));
-        ringValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
+        ringValue.getStyleClass().add("settings-value");
         ringSlider.valueProperty().addListener((_, _, v) -> {
             ringValue.setText(String.format("%.1fpx", v.doubleValue()));
             forEachWorkspace(tabs, ws -> ws.setFocusRingWidth(v.doubleValue()));
@@ -1284,13 +1210,13 @@ public class JHostty extends Application {
         ringRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         var animLabel = new Label("Animation Speed");
-        animLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
-        var animSlider = safeSlider(50, 800, 300);
+        animLabel.getStyleClass().add("settings-label");
+        var animSlider = safeSlider(0, 800, 300);
         animSlider.setPrefWidth(180);
-        var animValue = new Label(String.format("%.0fms", animSlider.getValue()));
-        animValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
+        var animValue = new Label(animSlider.getValue() <= 0 ? "off" : String.format("%.0fms", animSlider.getValue()));
+        animValue.getStyleClass().add("settings-value");
         animSlider.valueProperty().addListener((_, _, v) -> {
-            animValue.setText(String.format("%.0fms", v.doubleValue()));
+            animValue.setText(v.doubleValue() <= 0 ? "off" : String.format("%.0fms", v.doubleValue()));
             forEachWorkspace(tabs, ws -> ws.setAnimationDuration(v.doubleValue()));
         });
         var animRow = new HBox(8, animSlider, animValue);
@@ -1298,42 +1224,38 @@ public class JHostty extends Application {
 
         var pastelCheck = new CheckBox("Pastel Tinting");
         pastelCheck.setSelected(true);
-        pastelCheck.setStyle("-fx-font-size: 11;");
+        pastelCheck.getStyleClass().add("settings-check");
         pastelCheck.selectedProperty().addListener((_, _, v) -> forEachWorkspace(tabs, ws -> ws.pastelTintingProperty().set(v)));
 
         var animCheck = new CheckBox("Animations");
         animCheck.setSelected(true);
-        animCheck.setStyle("-fx-font-size: 11;");
+        animCheck.getStyleClass().add("settings-check");
         animCheck.selectedProperty().addListener((_, _, v) -> forEachWorkspace(tabs, ws -> ws.animationsEnabledProperty().set(v)));
 
         var focusFollowsCheck = new CheckBox("Focus Follows Mouse");
-        focusFollowsCheck.setStyle("-fx-font-size: 11;");
+        focusFollowsCheck.getStyleClass().add("settings-check");
         focusFollowsCheck.selectedProperty().bindBidirectional(focusFollowsMouse);
 
         var sep1 = new Separator();
         var sep2 = new Separator();
 
-        var closeBtn = new Button("\u2715");
-        closeBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;");
-        closeBtn.setOnMouseEntered(_ -> closeBtn.setStyle("-fx-background-color: rgba(255,255,255,0.1); -fx-background-radius: 4; -fx-text-fill: #ccc; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;"));
-        closeBtn.setOnMouseExited(_ -> closeBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;"));
-        closeBtn.setFocusTraversable(false);
+        var closeBtn = closeBtnSvg("M1.05 0L0 1.05 3.45 4.5 0 7.95 1.05 9 4.5 5.55 7.95 9 9 7.95 5.55 4.5 9 1.05 7.95 0 4.5 3.45Z");
 
         var titleRow = new HBox(title, new Region() {{ HBox.setHgrow(this, Priority.ALWAYS); }}, closeBtn);
         titleRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         // --- Theme selector (search + list with color preview) ---
         var themeLabel = new Label("Theme");
-        themeLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
+        themeLabel.getStyleClass().add("settings-label");
         var allThemes = Themes.all();
         var themeSearch = new TextField();
         themeSearch.setPromptText("Search " + allThemes.size() + " themes...");
-        themeSearch.setStyle("-fx-font-size: 11;");
+
         themeSearch.setPrefWidth(230);
         var themeList = new ListView<ThemeOption>();
         themeList.getItems().addAll(allThemes);
         themeList.setPrefHeight(150);
-        themeList.setStyle("-fx-font-size: 11;");
+
 
         // Color preview cell
         themeList.setCellFactory(_ -> new javafx.scene.control.ListCell<>() {
@@ -1402,11 +1324,11 @@ public class JHostty extends Application {
 
         // --- Zoom slider ---
         var zoomLabel = new Label("Zoom");
-        zoomLabel.setStyle("-fx-font-size: 11; -fx-opacity: 0.6;");
+        zoomLabel.getStyleClass().add("settings-label");
         var zoomSlider = safeSlider(8, 36, currentZoom);
         zoomSlider.setPrefWidth(180);
         var zoomValue = new Label(String.format("%.0fpt", zoomSlider.getValue()));
-        zoomValue.setStyle("-fx-font-size: 10; -fx-opacity: 0.5;");
+        zoomValue.getStyleClass().add("settings-value");
         zoomSlider.valueProperty().addListener((_, _, v) -> {
             var size = Math.round(v.doubleValue());
             zoomValue.setText(size + "pt");
@@ -1564,12 +1486,12 @@ public class JHostty extends Application {
 
     static void captureNode(StringBuilder sb, Node node) {
         if (node instanceof TerminalView v) {
-            sb.append("1[").append(LayoutCodec.encodeCommand(getTerminalCommand(v))).append(']');
+            sb.append("T[").append(LayoutCodec.encodeCommand(getTerminalCommand(v))).append(']');
         } else if (node instanceof SplitWorkspace ws) {
             var root = ws.getRoot();
             if (root != null) captureSplitNode(sb, root);
-            else sb.append("L[]");
-        } else sb.append("1");
+            else sb.append("T[]");
+        } else sb.append("T[]");
     }
 
     static void captureSplitNode(StringBuilder sb, SplitNode node) {
@@ -1675,6 +1597,7 @@ public class JHostty extends Application {
         workspace.setPastelOpacity(pastelOpacity(currentTheme));
         workspace.focusFollowsMouseProperty().set(focusFollowsMouse.get());
         workspace.setStyle("-fx-background-color: " + colorToCss(dividerColor(currentTheme.background())) + ";");
+        workspace.setHeaderContextMenuFactory(leaf -> createPaneContextMenu(leaf, workspace, tabPane));
         workspace.setOnEmpty(() -> Platform.runLater(() -> {
             var tp = findTabPane(workspace);
             var stg = tp != null ? findStage(tp) : null;
@@ -1745,12 +1668,8 @@ public class JHostty extends Application {
         sidebarTree.getStyleClass().add("jhostty-sidebar");
 
         var sidebarTitle = new Label("Terminals");
-        sidebarTitle.setStyle("-fx-font-size: 14; -fx-font-weight: bold;");
-        var sidebarCloseBtn = new Button("\u2715");
-        sidebarCloseBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;");
-        sidebarCloseBtn.setOnMouseEntered(_ -> sidebarCloseBtn.setStyle("-fx-background-color: rgba(255,255,255,0.1); -fx-background-radius: 4; -fx-text-fill: #ccc; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;"));
-        sidebarCloseBtn.setOnMouseExited(_ -> sidebarCloseBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888; -fx-font-size: 12; -fx-padding: 0 4; -fx-cursor: hand;"));
-        sidebarCloseBtn.setFocusTraversable(false);
+        sidebarTitle.getStyleClass().add("settings-title");
+        var sidebarCloseBtn = closeBtnSvg("M1.05 0L0 1.05 3.45 4.5 0 7.95 1.05 9 4.5 5.55 7.95 9 9 7.95 5.55 4.5 9 1.05 7.95 0 4.5 3.45Z");
         sidebarCloseBtn.setOnAction(_ -> toggleSidebar());
         var sidebarHeader = new HBox(sidebarTitle, new Region() {{ HBox.setHgrow(this, Priority.ALWAYS); }}, sidebarCloseBtn);
         sidebarHeader.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
@@ -1762,7 +1681,7 @@ public class JHostty extends Application {
         sidebar.setMinWidth(100);
         sidebarTree.setCellFactory(_ -> new TreeCell<>() {
             private final Label icon = new Label();
-            { icon.setStyle("-fx-font-size: 11; -fx-padding: 0 4 0 0;"); }
+            { icon.getStyleClass().add("sidebar-icon"); }
             @Override protected void updateItem(SidebarItem item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) { setText(null); setGraphic(null); return; }
@@ -1828,7 +1747,7 @@ public class JHostty extends Application {
         var titleBarHeight = 28.0;
 
         var titleLabel = new Label("jhostty");
-        titleLabel.setStyle("-fx-text-fill: rgba(255,255,255,0.6); -fx-font-size: 12;");
+        titleLabel.getStyleClass().add("window-title");
         titleLabel.setMouseTransparent(true);
 
         var trafficSpacer = new Region();
@@ -2029,387 +1948,69 @@ public class JHostty extends Application {
         Platform.runLater(JHostty::saveState);
     }
 
-    // --- Tab Overview ---
-
-    static javafx.scene.layout.StackPane tabOverlayPane;
-    static boolean tabOverviewAnimating = false;
+    // --- Tab Overview (delegated to TabOverview.java) ---
 
     static void toggleTabOverview(TabPane tabs) {
         var stage = findStage(tabs);
-        if (stage == null || tabOverviewAnimating) return;
+        if (stage == null) return;
         var root = (javafx.scene.layout.StackPane) stage.getScene().getRoot();
-
-        // If already showing, animate out and dismiss
-        if (tabOverlayPane != null && tabOverlayPane.getParent() == root) {
-            animateOverviewOut(root);
-            return;
-        }
-
-        // Build grid of tab snapshots
-        var grid = new javafx.scene.layout.FlowPane(16, 16);
-        grid.setAlignment(javafx.geometry.Pos.CENTER);
-        grid.setPadding(new javafx.geometry.Insets(40));
-
-        var selectedTab = tabs.getSelectionModel().getSelectedItem();
-
-        for (var tab : tabs.getTabs()) {
-            var content = tab.getContent();
-            if (content == null) continue;
-
-            // Snapshot the tab content
-            var snapshot = content.snapshot(null, null);
-            var imgView = new javafx.scene.image.ImageView(snapshot);
-            imgView.setFitWidth(220);
-            imgView.setPreserveRatio(true);
-            imgView.setSmooth(true);
-
-            var title = tab.getText() != null && !tab.getText().isBlank() ? tab.getText() : "Terminal";
-            var titleLbl = new Label(title);
-            titleLbl.setStyle("-fx-text-fill: rgba(255,255,255,0.8); -fx-font-size: 11;");
-            titleLbl.setMaxWidth(220);
-            titleLbl.setAlignment(javafx.geometry.Pos.CENTER);
-
-            var card = new VBox(4, titleLbl, imgView);
-            card.setAlignment(javafx.geometry.Pos.CENTER);
-            card.setPadding(new javafx.geometry.Insets(8));
-            card.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 10; -fx-cursor: hand;");
-
-            if (tab == selectedTab) {
-                card.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 10; -fx-cursor: hand; -fx-border-color: #3B82F6; -fx-border-width: 2; -fx-border-radius: 10;");
-            }
-
-            card.setOnMouseEntered(_ -> {
-                if (tab != selectedTab) card.setStyle("-fx-background-color: rgba(60,60,60,0.9); -fx-background-radius: 10; -fx-cursor: hand;");
-            });
-            card.setOnMouseExited(_ -> {
-                if (tab == selectedTab)
-                    card.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 10; -fx-cursor: hand; -fx-border-color: #3B82F6; -fx-border-width: 2; -fx-border-radius: 10;");
-                else
-                    card.setStyle("-fx-background-color: rgba(40,40,40,0.85); -fx-background-radius: 10; -fx-cursor: hand;");
-            });
-
-            final var cardRef = card;
-            card.setOnMouseClicked(_ -> {
-                tabs.getSelectionModel().select(tab);
-                animateOverviewSelect(root, cardRef, grid);
-            });
-
-            grid.getChildren().add(card);
-        }
-
-        // "+" card
-        var plusLbl = new Label("+");
-        plusLbl.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 36;");
-        var plusCard = new VBox(plusLbl);
-        plusCard.setAlignment(javafx.geometry.Pos.CENTER);
-        plusCard.setPrefSize(220, 140);
-        plusCard.setStyle("-fx-background-color: rgba(80,80,80,0.5); -fx-background-radius: 10; -fx-cursor: hand;");
-        plusCard.setOnMouseEntered(_ -> plusCard.setStyle("-fx-background-color: rgba(100,100,100,0.6); -fx-background-radius: 10; -fx-cursor: hand;"));
-        plusCard.setOnMouseExited(_ -> plusCard.setStyle("-fx-background-color: rgba(80,80,80,0.5); -fx-background-radius: 10; -fx-cursor: hand;"));
-        plusCard.setOnMouseClicked(_ -> {
-            animateOverviewOut(root);
-            Platform.runLater(() -> newTabNext(tabs));
-        });
-        grid.getChildren().add(plusCard);
-
-        // Wrap in scrollable overlay
-        var scroll = new javafx.scene.control.ScrollPane(grid);
-        scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
-
-        tabOverlayPane = new javafx.scene.layout.StackPane(scroll);
-        tabOverlayPane.setStyle("-fx-background-color: rgba(0,0,0,0.75);");
-
-        // Click background to dismiss
-        tabOverlayPane.setOnMouseClicked(e -> {
-            if (e.getTarget() == tabOverlayPane || e.getTarget() == scroll) animateOverviewOut(root);
-        });
-
-        // Escape to dismiss
-        tabOverlayPane.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.getCode() == KeyCode.ESCAPE) { animateOverviewOut(root); e.consume(); }
-        });
-
-        // Animate in: start zoomed up, shrink to grid
-        root.getChildren().add(tabOverlayPane);
-        tabOverlayPane.requestFocus();
-        tabOverlayPane.setOpacity(0);
-        // Start cards invisible, scale up from center
-        for (var node : grid.getChildren()) { node.setOpacity(0); node.setScaleX(2.5); node.setScaleY(2.5); }
-        tabOverviewAnimating = true;
-
-        var bgFade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(250), tabOverlayPane);
-        bgFade.setToValue(1.0);
-
-        // Stagger cards appearing
-        var cardAnims = new javafx.animation.ParallelTransition();
-        int ci = 0;
-        for (var node : grid.getChildren()) {
-            var delay = javafx.util.Duration.millis(ci * 30);
-            var fade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(200), node);
-            fade.setDelay(delay);
-            fade.setToValue(1.0);
-            var scale = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(300), node);
-            scale.setDelay(delay);
-            scale.setToX(1.0); scale.setToY(1.0);
-            scale.setInterpolator(javafx.animation.Interpolator.EASE_OUT);
-            cardAnims.getChildren().addAll(fade, scale);
-            ci++;
-        }
-        var par = new javafx.animation.ParallelTransition(bgFade, cardAnims);
-        par.setOnFinished(_ -> tabOverviewAnimating = false);
-        par.play();
+        TabOverview.toggle(tabs, root, () -> newTabNext(tabs));
     }
 
-    static void animateOverviewOut(javafx.scene.layout.Pane root) {
-        if (tabOverlayPane == null || tabOverviewAnimating) return;
-        tabOverviewAnimating = true;
-        var content = tabOverlayPane.getChildren().isEmpty() ? tabOverlayPane : tabOverlayPane.getChildren().getFirst();
-        var gridNode = (content instanceof javafx.scene.control.ScrollPane sp) ? sp.getContent() : content;
-        var cards = (gridNode instanceof javafx.scene.layout.Pane p) ? p.getChildren() : javafx.collections.FXCollections.<Node>observableArrayList();
+    // --- Command Palette (delegated to CommandPalette.java) ---
 
-        // Animate cards zooming out + fading
-        var cardAnims = new javafx.animation.ParallelTransition();
-        int ci = 0;
-        for (var node : cards) {
-            var delay = javafx.util.Duration.millis(ci * 20);
-            var fade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(150), node);
-            fade.setDelay(delay);
-            fade.setToValue(0);
-            var scale = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(200), node);
-            scale.setDelay(delay);
-            scale.setToX(2.5); scale.setToY(2.5);
-            scale.setInterpolator(javafx.animation.Interpolator.EASE_IN);
-            cardAnims.getChildren().addAll(fade, scale);
-            ci++;
-        }
-        var bgFade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(200), tabOverlayPane);
-        bgFade.setDelay(javafx.util.Duration.millis(100));
-        bgFade.setToValue(0);
-        var par = new javafx.animation.ParallelTransition(cardAnims, bgFade);
-        par.setOnFinished(_ -> {
-            root.getChildren().remove(tabOverlayPane);
-            tabOverlayPane = null;
-            tabOverviewAnimating = false;
-        });
-        par.play();
-    }
-
-    /** Animate zoom into the selected card while fading out others. */
-    static void animateOverviewSelect(javafx.scene.layout.Pane root, Node selectedCard, javafx.scene.layout.Pane grid) {
-        if (tabOverlayPane == null || tabOverviewAnimating) return;
-        tabOverviewAnimating = true;
-
-        var anims = new javafx.animation.ParallelTransition();
-
-        // Selected card: zoom to fill screen
-        var selScale = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(300), selectedCard);
-        selScale.setToX(4.0); selScale.setToY(4.0);
-        selScale.setInterpolator(javafx.animation.Interpolator.EASE_IN);
-        var selFade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(250), selectedCard);
-        selFade.setDelay(javafx.util.Duration.millis(100));
-        selFade.setToValue(0);
-        anims.getChildren().addAll(selScale, selFade);
-
-        // Other cards: fade out and shrink
-        for (var node : grid.getChildren()) {
-            if (node == selectedCard) continue;
-            var fade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(150), node);
-            fade.setToValue(0);
-            var scale = new javafx.animation.ScaleTransition(javafx.util.Duration.millis(200), node);
-            scale.setToX(0.8); scale.setToY(0.8);
-            scale.setInterpolator(javafx.animation.Interpolator.EASE_IN);
-            anims.getChildren().addAll(fade, scale);
-        }
-
-        // Background fade
-        var bgFade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(200), tabOverlayPane);
-        bgFade.setDelay(javafx.util.Duration.millis(150));
-        bgFade.setToValue(0);
-        anims.getChildren().add(bgFade);
-
-        anims.setOnFinished(_ -> {
-            root.getChildren().remove(tabOverlayPane);
-            tabOverlayPane = null;
-            tabOverviewAnimating = false;
-        });
-        anims.play();
-    }
-
-    // --- Command Palette ---
-
-    record PaletteItem(String label, String shortcut, String category, Runnable action) {
-        @Override public String toString() { return label; }
-    }
-
-    static javafx.scene.layout.StackPane paletteOverlay;
-
-    static void dismissPalette() {
-        if (paletteOverlay != null && paletteOverlay.getParent() instanceof javafx.scene.layout.Pane p) {
-            p.getChildren().remove(paletteOverlay);
-        }
-        paletteOverlay = null;
-    }
+    static void dismissPalette() { CommandPalette.dismiss(); }
 
     static void showCommandPalette(TabPane tabs) {
         var stage = findStage(tabs);
         if (stage == null) return;
         var rootStack = (javafx.scene.layout.StackPane) stage.getScene().getRoot();
 
-        // Dismiss if already showing
-        if (paletteOverlay != null && paletteOverlay.getParent() == rootStack) {
-            dismissPalette();
-            return;
-        }
-
         var sc = IS_MAC ? "\u2318" : "Ctrl+";
         var sh = IS_MAC ? "\u21E7" : "Shift+";
 
-        // Build command list
-        var commands = new ArrayList<PaletteItem>();
-        commands.add(new PaletteItem("New Tab", sc + "T", "Shell", () -> newTabNext(tabs)));
-        commands.add(new PaletteItem("New Window", sc + "N", "Shell", () -> newWindow()));
-        commands.add(new PaletteItem("Close Pane/Tab", sc + "W", "Shell", () -> closeActive(tabs, stage)));
-        commands.add(new PaletteItem("Close Other Tabs", "", "Shell", () -> closeOtherTabs(tabs)));
-        commands.add(new PaletteItem("Close Tabs to the Left", "", "Shell", () -> closeTabsToLeft(tabs)));
-        commands.add(new PaletteItem("Close Tabs to the Right", "", "Shell", () -> closeTabsToRight(tabs)));
-        commands.add(new PaletteItem("Add Column", sc + "D", "Shell", () -> splitActive(Orientation.VERTICAL)));
-        commands.add(new PaletteItem("Add Row", sc + sh + "D", "Shell", () -> splitActive(Orientation.HORIZONTAL)));
-        commands.add(new PaletteItem("Show All Tabs", sc + sh + "T", "Shell", () -> toggleTabOverview(tabs)));
-        commands.add(new PaletteItem("Quit", sc + "Q", "Shell", () -> quit()));
-        commands.add(new PaletteItem("Toggle Sidebar", sc + "/", "View", () -> toggleSidebar()));
-        commands.add(new PaletteItem("Toggle Settings", sc + ",", "View", () -> {
+        var commands = new ArrayList<CommandPalette.PaletteItem>();
+        commands.add(new CommandPalette.PaletteItem("New Tab", sc + "T", "Shell", () -> newTabNext(tabs)));
+        commands.add(new CommandPalette.PaletteItem("New Window", sc + "N", "Shell", () -> newWindow()));
+        commands.add(new CommandPalette.PaletteItem("Close Pane/Tab", sc + "W", "Shell", () -> closeActive(tabs, stage)));
+        commands.add(new CommandPalette.PaletteItem("Close Other Tabs", "", "Shell", () -> closeOtherTabs(tabs)));
+        commands.add(new CommandPalette.PaletteItem("Close Tabs to the Left", "", "Shell", () -> closeTabsToLeft(tabs)));
+        commands.add(new CommandPalette.PaletteItem("Close Tabs to the Right", "", "Shell", () -> closeTabsToRight(tabs)));
+        commands.add(new CommandPalette.PaletteItem("Add Column", sc + "D", "Shell", () -> splitActive(Orientation.VERTICAL)));
+        commands.add(new CommandPalette.PaletteItem("Add Row", sc + sh + "D", "Shell", () -> splitActive(Orientation.HORIZONTAL)));
+        commands.add(new CommandPalette.PaletteItem("Show All Tabs", sc + sh + "T", "Shell", () -> toggleTabOverview(tabs)));
+        commands.add(new CommandPalette.PaletteItem("Quit", sc + "Q", "Shell", () -> quit()));
+        commands.add(new CommandPalette.PaletteItem("Toggle Sidebar", sc + "/", "View", () -> toggleSidebar()));
+        commands.add(new CommandPalette.PaletteItem("Toggle Settings", sc + ",", "View", () -> {
             var bp = getRootPane(stage); if (bp != null) { var sp = (Node) bp.getRight(); if (sp != null) { var vis = !sp.isVisible(); sp.setVisible(vis); sp.setManaged(vis); } }
         }));
-        commands.add(new PaletteItem("Zoom In", sc + "+", "View", () -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); }));
-        commands.add(new PaletteItem("Zoom Out", sc + "-", "View", () -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); }));
-        commands.add(new PaletteItem("Reset Zoom", sc + "0", "View", () -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); }));
-        commands.add(new PaletteItem("Zoom/Unzoom Pane", sc + sh + "Enter", "Pane", () -> { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); }));
-        commands.add(new PaletteItem("Focus Next Pane", sc + "Tab", "Pane", () -> { var ws = activeWorkspace(); if (ws != null) ws.focusNext(); }));
-        commands.add(new PaletteItem("Toggle Read-Only", "", "Pane", () -> toggleReadOnly()));
-        commands.add(new PaletteItem("Help", sc + sh + "/", "Help", () -> showHelp()));
-        commands.add(new PaletteItem("Reload Config", "", "View", () -> { loadConfig(); applyThemeToAll(); }));
+        commands.add(new CommandPalette.PaletteItem("Zoom In", sc + "+", "View", () -> { if (activeTerminal != null) zoomTerminal(activeTerminal, 1); }));
+        commands.add(new CommandPalette.PaletteItem("Zoom Out", sc + "-", "View", () -> { if (activeTerminal != null) zoomTerminal(activeTerminal, -1); }));
+        commands.add(new CommandPalette.PaletteItem("Reset Zoom", sc + "0", "View", () -> { if (activeTerminal != null) setTerminalZoom(activeTerminal, baseFontSize); }));
+        commands.add(new CommandPalette.PaletteItem("Zoom/Unzoom Pane", sc + sh + "Enter", "Pane", () -> { var ws = activeWorkspace(); if (ws != null) ws.toggleZoom(); }));
+        commands.add(new CommandPalette.PaletteItem("Focus Next Pane", sc + "Tab", "Pane", () -> { var ws = activeWorkspace(); if (ws != null) ws.focusNext(); }));
+        commands.add(new CommandPalette.PaletteItem("Toggle Pane Read-Only", "", "Pane", () -> toggleReadOnly()));
+        commands.add(new CommandPalette.PaletteItem("Toggle Tab Read-Only", "", "Pane", () -> toggleTabReadOnly()));
+        commands.add(new CommandPalette.PaletteItem("Help", sc + sh + "/", "Help", () -> showHelp()));
+        commands.add(new CommandPalette.PaletteItem("Reset to Defaults", "", "Help", () -> resetToDefaults()));
+        commands.add(new CommandPalette.PaletteItem("Panic!", "", "Help", () -> resetToDefaults()));
+        commands.add(new CommandPalette.PaletteItem("Reload Config", "", "View", () -> { loadConfig(); applyThemeToAll(); }));
 
-        // Add tabs as items
         for (int i = 0; i < tabs.getTabs().size(); i++) {
             var tab = tabs.getTabs().get(i);
             var title = tab.getText() != null && !tab.getText().isBlank() ? tab.getText() : "Terminal";
             final int idx = i;
-            commands.add(new PaletteItem("Switch to: " + title, i < 9 ? sc + (i + 1) : "", "Tabs", () -> tabs.getSelectionModel().select(idx)));
+            commands.add(new CommandPalette.PaletteItem("Switch to: " + title, i < 9 ? sc + (i + 1) : "", "Tabs", () -> tabs.getSelectionModel().select(idx)));
         }
 
-        // Add themes (first 50 matching)
         for (var t : Themes.all()) {
             final var theme = t;
-            commands.add(new PaletteItem("Theme: " + t.label(), "", "Themes", () -> {
+            commands.add(new CommandPalette.PaletteItem("Theme: " + t.label(), "", "Themes", () -> {
                 currentThemeName = theme.label(); currentTheme = theme.theme(); applyThemeToAll(); saveState();
             }));
         }
 
-        var allItems = List.copyOf(commands);
-
-        var searchField = new TextField();
-        searchField.setPromptText("Type a command, tab name, or theme\u2026");
-        searchField.setStyle("-fx-font-size: 17; -fx-background-color: rgba(255,255,255,0.08); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.15); -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 8 12;");
-
-        var resultList = new ListView<PaletteItem>();
-        resultList.getItems().addAll(allItems);
-        resultList.setPrefHeight(350);
-        resultList.getStyleClass().add("jhostty-palette-list");
-        resultList.setFixedCellSize(32);
-        resultList.setCellFactory(_ -> new javafx.scene.control.ListCell<>() {
-            @Override protected void updateItem(PaletteItem item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) { setGraphic(null); setText(null); return; }
-                var lbl = new Label(item.label());
-                lbl.setStyle("-fx-font-size: 15;");
-                lbl.getStyleClass().add("jhostty-palette-label");
-                var cat = new Label(item.category());
-                cat.setStyle("-fx-font-size: 13;");
-                cat.getStyleClass().add("jhostty-palette-cat");
-                var spacer = new Region();
-                HBox.setHgrow(spacer, Priority.ALWAYS);
-                var sc2 = new Label(item.shortcut());
-                sc2.setStyle("-fx-font-size: 14;");
-                sc2.getStyleClass().add("jhostty-palette-shortcut");
-                var row = new HBox(6, lbl, cat, spacer, sc2);
-                row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
-                setGraphic(row);
-                setText(null);
-            }
-        });
-
-        // Filter
-        searchField.textProperty().addListener((_, _, text) -> {
-            resultList.getItems().clear();
-            var lower = text == null ? "" : text.toLowerCase();
-            allItems.stream()
-                .filter(item -> lower.isEmpty() || item.label().toLowerCase().contains(lower)
-                    || item.category().toLowerCase().contains(lower))
-                .forEach(item -> resultList.getItems().add(item));
-            if (!resultList.getItems().isEmpty()) resultList.getSelectionModel().select(0);
-        });
-
-        // Arrow keys navigate, Enter selects
-        // Execute selected item helper
-        final Runnable[] execRef = new Runnable[1];
-        execRef[0] = () -> {
-            var sel = resultList.getSelectionModel().getSelectedItem();
-            if (sel != null) {
-                dismissPalette();
-                Platform.runLater(sel.action());
-            }
-        };
-
-        searchField.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            switch (e.getCode()) {
-                case DOWN -> { resultList.requestFocus(); resultList.getSelectionModel().select(0); e.consume(); }
-                case UP -> { var sz = resultList.getItems().size(); if (sz > 0) { resultList.requestFocus(); resultList.getSelectionModel().select(sz - 1); resultList.scrollTo(sz - 1); } e.consume(); }
-                case ENTER -> { execRef[0].run(); e.consume(); }
-                case ESCAPE -> { dismissPalette(); e.consume(); }
-                case TAB -> e.consume();
-                default -> {}
-            }
-        });
-
-        // Click to select
-        resultList.setOnMouseClicked(_ -> execRef[0].run());
-
-        var paletteBox = new VBox(8, searchField, resultList);
-        paletteBox.setStyle("-fx-background-color: rgba(30,30,30,0.95); -fx-background-radius: 10; -fx-border-color: rgba(255,255,255,0.12); -fx-border-radius: 10; -fx-padding: 12; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.6), 20, 0, 0, 8);");
-        paletteBox.setMaxWidth(550);
-        paletteBox.setMaxHeight(500);
-
-        // Arrow/Enter/Escape on the list itself
-        resultList.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            switch (e.getCode()) {
-                case ENTER -> { execRef[0].run(); e.consume(); }
-                case ESCAPE -> { dismissPalette(); e.consume(); }
-                case UP -> {
-                    if (resultList.getSelectionModel().getSelectedIndex() == 0) {
-                        searchField.requestFocus(); e.consume();
-                    }
-                }
-                case TAB -> e.consume();
-                default -> {
-                    if (e.getCode().isLetterKey() || e.getCode().isDigitKey() || e.getCode() == KeyCode.BACK_SPACE || e.getCode() == KeyCode.SPACE) {
-                        searchField.requestFocus();
-                        if (e.getCode() == KeyCode.BACK_SPACE) searchField.deletePreviousChar();
-                        else if (e.getText() != null && !e.getText().isEmpty()) searchField.appendText(e.getText());
-                        e.consume();
-                    }
-                }
-            }
-        });
-
-        paletteOverlay = new javafx.scene.layout.StackPane(paletteBox);
-        paletteOverlay.setStyle("-fx-background-color: rgba(0,0,0,0.3);");
-        javafx.scene.layout.StackPane.setAlignment(paletteBox, javafx.geometry.Pos.TOP_CENTER);
-        javafx.scene.layout.StackPane.setMargin(paletteBox, new javafx.geometry.Insets(60, 0, 0, 0));
-
-        rootStack.getChildren().add(paletteOverlay);
-        searchField.requestFocus();
-        if (!resultList.getItems().isEmpty()) resultList.getSelectionModel().select(0);
+        CommandPalette.show(rootStack, List.copyOf(commands));
     }
 
     // --- Help ---
@@ -2483,26 +2084,96 @@ public class JHostty extends Application {
             if (view == null) return;
             var tab = new Tab();
             tab.setText("Help");
-            tab.setContent(new SplitWorkspace() {{
-                setContentFactory(() -> createTerminal());
-                setRoot(new LeafPane(PaneId.next(), view, "Help"));
-            }});
-            var ws = (SplitWorkspace) tab.getContent();
+            var ws = new SplitWorkspace();
+            ws.setContentFactory(() -> createTerminal());
             configureWorkspace(ws, tabPane);
+            ws.setRoot(new LeafPane(PaneId.next(), view, "Help"));
+            tab.setContent(ws);
             setupTabGraphic(tab, tabPane);
             tabPane.getTabs().add(tab);
             tabPane.getSelectionModel().select(tab);
         } catch (IOException _) {}
     }
 
+    // --- Terminal Context Menu ---
+
+    static ContextMenu createTerminalContextMenu(TerminalView view) {
+        var copy = new MenuItem("Copy"); copy.setOnAction(_ -> view.copySelection());
+        var paste = new MenuItem("Paste"); paste.setOnAction(_ -> view.pasteClipboard());
+        var splitH = new MenuItem("Add Column"); splitH.setOnAction(_ -> split(view, Orientation.VERTICAL));
+        var splitV = new MenuItem("Add Row"); splitV.setOnAction(_ -> split(view, Orientation.HORIZONTAL));
+        var readOnly = new MenuItem("Toggle Read-Only"); readOnly.setOnAction(_ -> {
+            setReadOnly(view, !readOnlyTerminals.contains(view));
+        });
+        var newTab = new MenuItem("New Tab"); newTab.setOnAction(_ -> newTab(findTabPane(view)));
+        var close = new MenuItem("Close Pane"); close.setOnAction(_ -> removeTerminal(view, null, null));
+        return new ContextMenu(
+                copy, paste,
+                new SeparatorMenuItem(), newTab, splitH, splitV,
+                new SeparatorMenuItem(), readOnly,
+                new SeparatorMenuItem(), close);
+    }
+
+    /** Check if the terminal's underlying session has mouse tracking enabled (e.g. for TUI apps like htop, vim). */
+    static boolean isMouseTrackingEnabled(TerminalView view) {
+        try {
+            var sessionField = TerminalView.class.getDeclaredField("terminalSession");
+            sessionField.setAccessible(true);
+            var session = sessionField.get(view);
+            var method = session.getClass().getDeclaredMethod("mouseTrackingEnabled");
+            method.setAccessible(true);
+            return (boolean) method.invoke(session);
+        } catch (Exception _) {
+            return false; // If reflection fails, assume no tracking — show context menu
+        }
+    }
+
+    // --- Reset ---
+
+    static void resetToDefaults() {
+        currentThemeName = "Ghostty Default";
+        currentTheme = Themes.all().stream()
+            .filter(t -> t.label().equals(currentThemeName))
+            .map(Themes.ThemeOption::theme)
+            .findFirst().orElse(currentTheme);
+        currentZoom = DEFAULT_SIZE;
+        baseFontSize = DEFAULT_SIZE;
+        currentFontFamily = detectedFontFamily;
+        applyFontToAll();
+        applyThemeToAll();
+        saveState();
+        debug("reset to defaults: theme=" + currentThemeName + " zoom=" + currentZoom + " font=" + currentFontFamily);
+    }
+
     // --- Read-Only Mode ---
 
+    /** Toggle read-only for the active terminal pane only. */
     static void toggleReadOnly() {
         if (activeTerminal == null) return;
-        var view = activeTerminal;
-        if (readOnlyTerminals.contains(view)) {
+        setReadOnly(activeTerminal, !readOnlyTerminals.contains(activeTerminal));
+    }
+
+    /** Toggle read-only for all terminals in the active tab's workspace. */
+    static void toggleTabReadOnly() {
+        if (activeTerminal == null) return;
+        var makeReadOnly = !readOnlyTerminals.contains(activeTerminal);
+        var ws = activeWorkspace();
+        if (ws != null) {
+            for (var leaf : ws.allLeaves()) {
+                if (leaf.content() instanceof TerminalView tv) {
+                    setReadOnly(tv, makeReadOnly);
+                }
+            }
+        } else {
+            setReadOnly(activeTerminal, makeReadOnly);
+        }
+    }
+
+    /** Set read-only state on a single terminal view. */
+    static void setReadOnly(TerminalView view, boolean readOnly) {
+        if (readOnly == readOnlyTerminals.contains(view)) return; // already in desired state
+        if (!readOnly) {
             readOnlyTerminals.remove(view);
-            // Remove the filter
             @SuppressWarnings("unchecked")
             var filter = (javafx.event.EventHandler<javafx.scene.input.InputEvent>) view.getProperties().get(READONLY_KEY);
             if (filter != null) {
@@ -2512,55 +2183,52 @@ public class JHostty extends Application {
                 view.removeEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, filter);
                 view.getProperties().remove(READONLY_KEY);
             }
-            // Remove pill
             var pill = view.getProperties().remove("jhostty.readOnlyPill");
             if (pill instanceof Node pillNode) {
-                if (pillNode.getParent() instanceof javafx.scene.layout.Pane p) p.getChildren().remove(pillNode);
+                var pillParent = pillNode.getParent();
+                if (pillParent instanceof javafx.scene.layout.StackPane holder
+                        && holder.getParent() instanceof javafx.scene.layout.Pane p) {
+                    p.getChildren().remove(holder);
+                } else if (pillParent instanceof javafx.scene.layout.Pane p) {
+                    p.getChildren().remove(pillNode);
+                }
             }
             debug("read-only OFF for " + view.getTitle());
         } else {
             readOnlyTerminals.add(view);
-            // Add filter that blocks input but allows copy shortcuts and scroll
             javafx.event.EventHandler<javafx.scene.input.InputEvent> filter = e -> {
                 if (e instanceof KeyEvent ke) {
-                    // Allow Cmd+C (copy), Cmd+P (palette), Cmd+W (close), etc.
                     if (ke.isShortcutDown()) return;
-                    // Allow arrow keys, Page Up/Down, Home/End for scrolling
                     switch (ke.getCode()) {
                         case UP, DOWN, LEFT, RIGHT, PAGE_UP, PAGE_DOWN, HOME, END -> { return; }
                         default -> {}
                     }
                     e.consume();
                 } else if (e instanceof javafx.scene.input.MouseEvent me) {
-                    // Allow right-click (context menu) but block left-click input
                     if (me.getButton() == javafx.scene.input.MouseButton.SECONDARY) return;
-                    // Allow selection drag (don't consume PRESSED for text selection)
                 }
             };
             view.addEventFilter(KeyEvent.KEY_PRESSED, filter);
             view.addEventFilter(KeyEvent.KEY_TYPED, filter);
             view.getProperties().put(READONLY_KEY, filter);
-            // Add orange pill overlay
             var pill = new Label("READ-ONLY");
-            pill.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-size: 10; -fx-font-weight: bold; -fx-padding: 2 8; -fx-background-radius: 10;");
+            pill.getStyleClass().add("readonly-pill");
             pill.setMouseTransparent(true);
-            pill.setManaged(false);
             view.getProperties().put("jhostty.readOnlyPill", pill);
-            // Position pill in top-right of the pane
             var ws = findWorkspace(view);
             if (ws != null) {
                 var leaf = ws.findLeafByContent(view);
                 if (leaf != null) {
                     var wrapper = ws.getPaneWrapper(leaf);
                     if (wrapper instanceof javafx.scene.layout.Pane p) {
-                        p.getChildren().add(pill);
-                        pill.applyCss();
-                        pill.autosize();
-                        // Reposition on layout
-                        p.layoutBoundsProperty().addListener((_, _, b) -> {
-                            pill.relocate(b.getWidth() - pill.prefWidth(-1) - 8, 4);
-                        });
-                        Platform.runLater(() -> pill.relocate(p.getWidth() - pill.prefWidth(-1) - 8, 4));
+                        var pillHolder = new javafx.scene.layout.StackPane(pill);
+                        pillHolder.setPickOnBounds(false);
+                        pillHolder.setMouseTransparent(true);
+                        javafx.scene.layout.StackPane.setAlignment(pill, javafx.geometry.Pos.TOP_RIGHT);
+                        javafx.scene.layout.StackPane.setMargin(pill, new javafx.geometry.Insets(4, 8, 0, 0));
+                        p.getChildren().add(pillHolder);
+                        pillHolder.prefWidthProperty().bind(p.widthProperty());
+                        pillHolder.prefHeightProperty().bind(p.heightProperty());
                     }
                 }
             }

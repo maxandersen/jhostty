@@ -4,3 +4,5 @@ jhostty/target/
 .pi/
 .DS_Store
 target/
+.agents/
+skills-lock.json

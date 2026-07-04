@@ -221,6 +221,31 @@ class SplitWorkspace extends Region {
     // ── Public API ──────────────────────────────────────────────────────────────
 
     public void setContentFactory(Supplier<Node> factory) { this.contentFactory = factory; }
+    private java.util.function.Function<LeafPane, javafx.scene.control.ContextMenu> headerContextMenuFactory;
+    /** Set a factory that creates a context menu for pane header right-clicks. */
+    public void setHeaderContextMenuFactory(java.util.function.Function<LeafPane, javafx.scene.control.ContextMenu> factory) {
+        this.headerContextMenuFactory = factory;
+        // Apply retroactively to any existing headers that don't have a menu yet
+        if (factory != null) {
+            for (var leaf : allLeaves()) {
+                applyHeaderContextMenu(leaf, paneHeaders.get(leaf.id()));
+            }
+        }
+    }
+
+    private javafx.scene.control.ContextMenu activeHeaderMenu;
+
+    private void applyHeaderContextMenu(LeafPane leaf, Region header) {
+        if (header == null || headerContextMenuFactory == null) return;
+        if (header.getOnContextMenuRequested() != null) return;
+        final var leafRef = leaf;
+        header.setOnContextMenuRequested(e -> {
+            if (activeHeaderMenu != null) activeHeaderMenu.hide();
+            activeHeaderMenu = headerContextMenuFactory.apply(leafRef);
+            if (activeHeaderMenu != null) activeHeaderMenu.show(header, e.getScreenX(), e.getScreenY());
+            e.consume();
+        });
+    }
     public void setOnEmpty(Runnable handler) { this.onEmpty = handler; }
     /** Callback receives (leaf, screenX, screenY, paneW, paneH) when a pane is dragged outside all workspaces. */
     private PaneDraggedOutHandler onPaneDraggedOut;
@@ -291,12 +316,16 @@ class SplitWorkspace extends Region {
         requestLayout();
     }
 
-    /** Set animation duration for reflow/equalize/zoom (in ms). */
+    /** Set animation duration for reflow/equalize/zoom (in ms). 0 disables animations. */
     public void setAnimationDuration(double ms) {
-        REFLOW_DURATION = Duration.millis(Math.max(50, ms * 0.67));
-        RESIZE_ANIM_DURATION = Duration.millis(Math.max(50, ms));
-        ZOOM_DURATION = Duration.millis(Math.max(50, ms * 0.83));
-        FOCUS_DURATION = Duration.millis(Math.max(30, ms * 0.4));
+        if (ms <= 0) {
+            REFLOW_DURATION = RESIZE_ANIM_DURATION = ZOOM_DURATION = FOCUS_DURATION = Duration.ZERO;
+        } else {
+            REFLOW_DURATION = Duration.millis(Math.max(50, ms * 0.67));
+            RESIZE_ANIM_DURATION = Duration.millis(Math.max(50, ms));
+            ZOOM_DURATION = Duration.millis(Math.max(50, ms * 0.83));
+            FOCUS_DURATION = Duration.millis(Math.max(30, ms * 0.4));
+        }
     }
 
     /** Set pastel overlay opacity (0–1). Lower for dark themes, higher for light. */
@@ -422,9 +451,80 @@ class SplitWorkspace extends Region {
         }
         if (animate) {
             captureRectsForAnimation();
-            rebuildAll();
+            rebuildLayout();
+            syncContentNodes();
+            updatePastelOverlays();
+            updateShortcutLabels();
+
+            // New pane slides in: place at final size but clip to zero, animate clip open
+            var newWrapper = paneWrappers.get(newLeaf.id());
+            var targetRect = currentRects.get(newLeaf.id());
+            if (newWrapper != null && targetRect != null) {
+                // Apply final position immediately so terminal renders at correct size
+                newWrapper.resizeRelocate(targetRect.x(), targetRect.y(), targetRect.w(), targetRect.h());
+                if (newWrapper.getClip() instanceof Rectangle mainClip) {
+                    mainClip.setWidth(targetRect.w());
+                    mainClip.setHeight(targetRect.h());
+                }
+
+                // Add a slide clip that reveals from the insertion edge
+                var slideClip = new Rectangle();
+                boolean horizontal = (side == Side.LEFT || side == Side.RIGHT);
+                if (horizontal) {
+                    slideClip.setWidth(0);
+                    slideClip.setHeight(targetRect.h());
+                    if (side == Side.RIGHT) slideClip.setX(0);
+                    else slideClip.setX(targetRect.w());
+                } else {
+                    slideClip.setWidth(targetRect.w());
+                    slideClip.setHeight(0);
+                    if (side == Side.BOTTOM) slideClip.setY(0);
+                    else slideClip.setY(targetRect.h());
+                }
+                newWrapper.setClip(slideClip);
+
+                // Animate clip to reveal full pane
+                var timeline = new Timeline();
+                if (horizontal) {
+                    timeline.getKeyFrames().add(new KeyFrame(REFLOW_DURATION,
+                        new KeyValue(slideClip.widthProperty(), targetRect.w(), EASE_IN_OUT),
+                        new KeyValue(slideClip.xProperty(), 0.0, EASE_IN_OUT)));
+                } else {
+                    timeline.getKeyFrames().add(new KeyFrame(REFLOW_DURATION,
+                        new KeyValue(slideClip.heightProperty(), targetRect.h(), EASE_IN_OUT),
+                        new KeyValue(slideClip.yProperty(), 0.0, EASE_IN_OUT)));
+                }
+                timeline.setOnFinished(_ -> {
+                    // Restore normal clip
+                    var restored = new Rectangle(targetRect.w(), targetRect.h());
+                    restored.setArcWidth(PANE_RADIUS * 2);
+                    restored.setArcHeight(PANE_RADIUS * 2);
+                    newWrapper.setClip(restored);
+                });
+                timeline.play();
+
+            }
+
+            // Existing panes: don't include new pane in reflow (it's positioned manually)
+            animatingFrom.remove(newLeaf.id());
+            var reflowTargets = new java.util.LinkedHashMap<>(currentRects);
+            reflowTargets.remove(newLeaf.id());
+
+            // Position new pane's pastel at final rect immediately
+            var newPastel = pastelOverlays.get(newLeaf.id());
+            if (newPastel != null && targetRect != null) {
+                newPastel.setX(targetRect.x());
+                newPastel.setY(targetRect.y());
+                newPastel.setWidth(targetRect.w());
+                newPastel.setHeight(targetRect.h());
+            }
+            updatePastelOverlays();
+
             focusedPane.set(newLeaf);
-            animateReflow(REFLOW_DURATION);
+            animateToRects(reflowTargets, REFLOW_DURATION, () -> {
+                applyRects(currentRects);
+                updatePastelOverlays();
+            });
         }
     }
 
@@ -735,12 +835,22 @@ class SplitWorkspace extends Region {
                 shortcutLabel.setStyle("-fx-text-fill: rgba(255,255,255,0.25); -fx-font-size: 10;");
                 shortcutLabel.setMouseTransparent(true);
                 shortcutLabels.put(leaf.id(), shortcutLabel);
-                var grip = new javafx.scene.control.Label("\u2261"); // ≡
-                grip.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 13;");
-                grip.setMouseTransparent(true);
+                var closeSvg = "M1.05 0L0 1.05 3.45 4.5 0 7.95 1.05 9 4.5 5.55 7.95 9 9 7.95 5.55 4.5 9 1.05 7.95 0 4.5 3.45Z";
+                var closeIcon = new Region();
+                var closeShape = new javafx.scene.shape.SVGPath(); closeShape.setContent(closeSvg);
+                closeIcon.setShape(closeShape);
+                closeIcon.setMinSize(7, 7); closeIcon.setMaxSize(7, 7);
+                closeIcon.setStyle("-fx-background-color: rgba(255,255,255,0.15);");
+                var closeBtn = new javafx.scene.layout.StackPane(closeIcon);
+                closeBtn.setMinSize(16, 16); closeBtn.setMaxSize(16, 16);
+                closeBtn.setCursor(Cursor.HAND);
+                closeBtn.setOnMouseEntered(_ -> closeIcon.setStyle("-fx-background-color: rgba(255,255,255,0.7);"));
+                closeBtn.setOnMouseExited(_ -> closeIcon.setStyle("-fx-background-color: rgba(255,255,255,0.15);"));
+                final var leafClose = leaf;
+                closeBtn.setOnMouseClicked(e -> { focusedPane.set(leafClose); closeFocused(); e.consume(); });
                 var headerSpacer = new Region();
                 HBox.setHgrow(headerSpacer, Priority.ALWAYS);
-                var header = new HBox(4, titleLabel, headerSpacer, shortcutLabel, grip);
+                var header = new HBox(4, titleLabel, headerSpacer, shortcutLabel, closeBtn);
                 header.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
                 header.setPadding(new Insets(0, 6, 0, 6));
                 header.setPrefHeight(HEADER_H);
@@ -752,12 +862,17 @@ class SplitWorkspace extends Region {
 
                 // Wire DnD on header
                 final var leafRef = leaf;
-                header.setOnMousePressed(e -> { startPaneDrag(leafRef, e); e.consume(); });
+                header.setOnMousePressed(e -> {
+                    if (e.getButton() == MouseButton.SECONDARY) return; // let context menu through
+                    startPaneDrag(leafRef, e); e.consume();
+                });
                 header.setOnMouseDragged(e -> { doPaneDrag(e); e.consume(); });
                 header.setOnMouseReleased(e -> { endPaneDrag(e); e.consume(); });
                 header.setOnMouseClicked(e -> {
                     if (e.getClickCount() == 2) { focusedPane.set(leafRef); toggleZoom(); e.consume(); }
                 });
+                // Right-click context menu on header
+                applyHeaderContextMenu(leafRef, header);
 
                 // Layout: header on top, content fills rest
                 var paneNode = new AnchorPane(header, content);
@@ -776,9 +891,9 @@ class SplitWorkspace extends Region {
                 clip.setArcHeight(PANE_RADIUS * 2);
                 paneNode.setClip(clip);
 
-                // Click-to-focus
+                // Click-to-focus (primary button only — right-click opens context menu without switching focus)
                 paneNode.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
-                    focusedPane.set(leafRef);
+                    if (e.getButton() == MouseButton.PRIMARY) focusedPane.set(leafRef);
                 });
 
                 paneWrappers.put(leaf.id(), paneNode);
@@ -849,7 +964,6 @@ class SplitWorkspace extends Region {
             var wrapper = paneWrappers.get(id);
             if (wrapper != null) {
                 wrapper.resizeRelocate(r.x(), r.y(), r.w(), r.h());
-                // Update clip to match new size
                 if (wrapper.getClip() instanceof Rectangle clip) {
                     clip.setWidth(r.w());
                     clip.setHeight(r.h());
@@ -886,7 +1000,7 @@ class SplitWorkspace extends Region {
     }
 
     private void fadeRing(Rectangle ring, boolean in) {
-        if (!animationsEnabled.get()) {
+        if (!animationsEnabled.get() || FOCUS_DURATION.toMillis() <= 0) {
             ring.setOpacity(in ? 1.0 : 0.0);
             return;
         }
@@ -968,9 +1082,11 @@ class SplitWorkspace extends Region {
             e.consume();
             return;
         }
-        // Focus
-        var leaf = leafAt(mx, my);
-        if (leaf != null) focusedPane.set(leaf);
+        // Focus (primary button only)
+        if (e.getButton() == MouseButton.PRIMARY) {
+            var leaf = leafAt(mx, my);
+            if (leaf != null) focusedPane.set(leaf);
+        }
     }
 
     private void handleMouseDragged(MouseEvent e) {
@@ -1275,8 +1391,8 @@ class SplitWorkspace extends Region {
         if (paneDragGhost != null) { paneDragGhost.close(); paneDragGhost = null; }
         paneDragOutside = false;
 
-        // Perform drop
-        if (dragging && dropTarget == null && onPaneDraggedOut != null) {
+        // Perform drop — only detach if mouse is actually outside all workspaces
+        if (dragging && dropTarget == null && onPaneDraggedOut != null && paneDragOutside) {
             var source = dragSource;
             double sx = e.getScreenX(), sy = e.getScreenY();
             var r = currentRects.get(source.id());
@@ -1712,7 +1828,7 @@ class SplitWorkspace extends Region {
         var from = new LinkedHashMap<>(animatingFrom.isEmpty() ? currentRects : animatingFrom);
         animatingFrom.clear();
 
-        if (from.equals(targets) || !animationsEnabled.get()) {
+        if (from.equals(targets) || !animationsEnabled.get() || duration.toMillis() <= 0) {
             applyRects(targets);
             if (onFinished != null) onFinished.run();
             return;

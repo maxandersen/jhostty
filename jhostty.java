@@ -16,6 +16,9 @@
 //SOURCES src/dk/xam/jhostty/ShellDetection.java
 //SOURCES src/dk/xam/jhostty/SplitWorkspace.java
 //SOURCES src/dk/xam/jhostty/Themes.java
+//SOURCES src/dk/xam/jhostty/TabOverview.java
+//SOURCES src/dk/xam/jhostty/CommandPalette.java
+//SOURCES src/dk/xam/jhostty/ThemeCss.java
 //SOURCES src/dk/xam/jhostty/ZmxSession.java
 //SOURCES src/dk/xam/themes/ColorUtil.java
 //SOURCES src/dk/xam/themes/TerminalColorScheme.java
