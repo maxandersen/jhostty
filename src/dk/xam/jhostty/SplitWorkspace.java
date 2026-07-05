@@ -169,7 +169,7 @@ class SplitWorkspace extends Region {
     private final Map<PaneId, javafx.scene.control.Label> shortcutLabels = new HashMap<>();
     private final List<javafx.scene.control.Label> numberOverlays = new ArrayList<>();
     private boolean numberOverlaysVisible = false;
-    private static final String SHORTCUT_SYMBOL = System.getProperty("os.name", "").toLowerCase().contains("mac") ? "\u2318" : "^";
+    private static final String SHORTCUT_SYMBOL = ShellDetection.IS_MAC ? "\u2318" : "^";
 
     // Zoom state
     private boolean zoomed = false;
@@ -1865,42 +1865,6 @@ class SplitWorkspace extends Region {
     }
 
     // ── Static demo layout (7 panes) ────────────────────────────────────────────
-
-    /**
-     * Creates the reference 7-pane demo layout from the design doc §3.3.
-     * Each pane gets a simple colored Region as placeholder content.
-     */
-    public static SplitWorkspace createDemo() {
-        var ws = new SplitWorkspace();
-        ws.setContentFactory(() -> {
-            var r = new Region();
-            r.setStyle("-fx-background-color: transparent;");
-            return r;
-        });
-
-        // Build the tree per §3.3
-        var pane1 = new LeafPane(PaneId.next(), ws.getContentFactory().get(), "Pane 1");
-        var pane7 = new LeafPane(PaneId.next(), ws.getContentFactory().get(), "Pane 7");
-        var pane2 = new LeafPane(PaneId.next(), ws.getContentFactory().get(), "Pane 2");
-        var pane5 = new LeafPane(PaneId.next(), ws.getContentFactory().get(), "Pane 5");
-        var pane6 = new LeafPane(PaneId.next(), ws.getContentFactory().get(), "Pane 6");
-        var pane4 = new LeafPane(PaneId.next(), ws.getContentFactory().get(), "Pane 4");
-        var pane3 = new LeafPane(PaneId.next(), ws.getContentFactory().get(), "Pane 3");
-
-        var leftCol = new Split(Orientation.VERTICAL,
-            List.of(pane1, pane7), List.of(0.55, 0.45));
-        var topRow = new Split(Orientation.HORIZONTAL,
-            List.of(pane2, pane5), List.of(0.5, 0.5));
-        var midRow = new Split(Orientation.HORIZONTAL,
-            List.of(pane6, pane4), List.of(0.5, 0.5));
-        var rightRegion = new Split(Orientation.VERTICAL,
-            List.of(topRow, midRow, pane3), List.of(0.33, 0.33, 0.34));
-        var root = new Split(Orientation.HORIZONTAL,
-            List.of(leftCol, rightRegion), List.of(0.34, 0.66));
-
-        ws.setRoot(root);
-        return ws;
-    }
 
     /**
      * Creates a workspace with a single leaf pane.

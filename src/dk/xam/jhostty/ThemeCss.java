@@ -18,9 +18,6 @@ final class ThemeCss {
                 (int)(c.getRed()*255), (int)(c.getGreen()*255), (int)(c.getBlue()*255), c.getOpacity());
     }
 
-    static Color dividerColor(Color bg) {
-        return Color.TRANSPARENT;
-    }
 
     static double pastelOpacity(Color bg) {
         var lum = luminance(bg);

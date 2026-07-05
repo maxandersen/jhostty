@@ -1,6 +1,5 @@
 package dk.xam.jhostty;
 
-import dk.xam.jhostty.FontManager.FontOption;
 import dk.xam.jhostty.ShellDetection.ShellOption;
 import dk.xam.jhostty.Themes.ThemeOption;
 
@@ -41,9 +40,8 @@ import javafx.stage.Stage;
 
 public class JHostty extends Application {
 
-    private static final String OS_NAME = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-    static final boolean IS_MAC = OS_NAME.contains("mac");
-    static final boolean IS_WINDOWS = OS_NAME.contains("win");
+    static final boolean IS_MAC = ShellDetection.IS_MAC;
+    static final boolean IS_WINDOWS = ShellDetection.IS_WINDOWS;
     private static final String SHORTCUT_SYMBOL = IS_MAC ? "\u2318" : "Ctrl+";
     private static final String SHIFT_SYMBOL = IS_MAC ? "\u21E7" : "Shift+";
     private static final double DEFAULT_SIZE = 15.0;
@@ -69,7 +67,7 @@ public class JHostty extends Application {
     static Path cssPath;
     static String cssUrl;
     static boolean debug;
-    static boolean demoMode;
+
     static final List<Stage> windows = new ArrayList<>();
     static final List<Menu> windowMenus = new ArrayList<>();
     static boolean sidebarVisible = false;
@@ -142,7 +140,7 @@ public class JHostty extends Application {
             e.printStackTrace();
         });
         debug = List.of(args).contains("--debug");
-        demoMode = List.of(args).contains("--demo");
+
         Runtime.getRuntime().addShutdownHook(new Thread(JHostty::saveState, "jhostty-shutdown"));
         Application.launch(JHostty.class, args);
     }
@@ -179,8 +177,7 @@ public class JHostty extends Application {
 
         Platform.setImplicitExit(false);
         initZmx();
-        if (demoMode) { newDemoWindow(); }
-        else { restoreLayout(); }
+ { restoreLayout(); }
         if (IS_MAC) {
             Platform.runLater(() -> { MacUtils.setAppName("jhostty"); MacUtils.setDockIcon(JHostty.class); });
         }
@@ -222,17 +219,6 @@ public class JHostty extends Application {
         return stage;
     }
 
-    static void newDemoWindow() {
-        var demo = SplitWorkspace.createDemo();
-        demo.setStyle("-fx-background-color: #FAFAFA;");
-        var scene = new Scene(demo, 1000, 700);
-        var stage = new Stage();
-        stage.setTitle("SplitWorkspace Demo");
-        stage.setScene(scene);
-        stage.setOnHidden(_ -> { windows.remove(stage); if (windows.isEmpty()) Platform.exit(); });
-        windows.add(stage);
-        stage.show();
-    }
 
     // --- Menu Bar ---
 
@@ -309,10 +295,10 @@ public class JHostty extends Application {
         var fontToggle = new ToggleGroup();
         var fontMenu = new Menu("Font");
         for (var f : FontManager.detectFonts()) {
-            var item = new RadioMenuItem(f.family());
+            var item = new RadioMenuItem(f);
             item.setToggleGroup(fontToggle);
-            if (f.family().equals(currentFontFamily)) item.setSelected(true);
-            item.setOnAction(_ -> { currentFontFamily = f.family(); applyFontToAll(); saveState(); });
+            if (f.equals(currentFontFamily)) item.setSelected(true);
+            item.setOnAction(_ -> { currentFontFamily = f; applyFontToAll(); saveState(); });
             fontMenu.getItems().add(item);
         }
 
@@ -985,9 +971,9 @@ public class JHostty extends Application {
 
     static void applyThemeToAll() {
         forEachTerminal(v -> v.setTheme(currentTheme));
-        var divColor = dividerColor(currentTheme.background());
-        var divColorCss = colorToCss(divColor);
-        var windowBgCss = colorToCss(currentTheme.background());
+        var divColor = Color.TRANSPARENT;
+        var divColorCss = ThemeCss.colorToCss(divColor);
+        var windowBgCss = ThemeCss.colorToCss(currentTheme.background());
         // Update workspace pane backgrounds to match theme
         for (var w : windows) {
             var tp = getTabPane(w);
@@ -995,8 +981,8 @@ public class JHostty extends Application {
                 for (var tab : tp.getTabs()) {
                     if (tab.getContent() instanceof SplitWorkspace ws) {
                         ws.setPaneBackground(currentTheme.background());
-                        ws.setFocusRingColor(focusRingColor(currentTheme));
-                        ws.setPastelOpacity(pastelOpacity(currentTheme));
+                        ws.setFocusRingColor(ThemeCss.focusRingColor(currentTheme.background(), currentTheme.foreground()));
+                        ws.setPastelOpacity(ThemeCss.pastelOpacity(currentTheme.background()));
                         ws.setStyle("-fx-background-color: " + divColorCss + ";");
                     }
                 }
@@ -1014,11 +1000,7 @@ public class JHostty extends Application {
         }
     }
 
-    // Delegate to ThemeCss
-    static double pastelOpacity(TerminalTheme theme) { return ThemeCss.pastelOpacity(theme.background()); }
-    static Color focusRingColor(TerminalTheme theme) { return ThemeCss.focusRingColor(theme.background(), theme.foreground()); }
-    static Color dividerColor(Color bg) { return ThemeCss.dividerColor(bg); }
-    static String colorToCss(Color c) { return ThemeCss.colorToCss(c); }
+
 
     static void writeCss() {
         if (cssPath == null) return;
@@ -1147,7 +1129,7 @@ public class JHostty extends Application {
 
         var pastelLabel = new Label("Pastel Opacity");
         pastelLabel.getStyleClass().add("settings-label");
-        var pastelSlider = safeSlider(0, 0.9, pastelOpacity(currentTheme));
+        var pastelSlider = safeSlider(0, 0.9, ThemeCss.pastelOpacity(currentTheme.background()));
         pastelSlider.setPrefWidth(180);
         var pastelValue = new Label(String.format("%.0f%%", pastelSlider.getValue() * 100));
         pastelValue.getStyleClass().add("settings-value");
@@ -1275,7 +1257,7 @@ public class JHostty extends Application {
                 for (var c : colors) {
                     var swatch = new Region();
                     swatch.setMinSize(7, 12); swatch.setMaxSize(7, 12);
-                    swatch.setStyle("-fx-background-color: " + colorToCss(c) + "; -fx-background-radius: 1;");
+                    swatch.setStyle("-fx-background-color: " + ThemeCss.colorToCss(c) + "; -fx-background-radius: 1;");
                     colorStrip.getChildren().add(swatch);
                 }
                 setGraphic(colorStrip);
@@ -1594,10 +1576,10 @@ public class JHostty extends Application {
     /** Configure a workspace with theme, callbacks, etc. */
     static void configureWorkspace(SplitWorkspace workspace, TabPane tabPane) {
         workspace.setPaneBackground(currentTheme.background());
-        workspace.setFocusRingColor(focusRingColor(currentTheme));
-        workspace.setPastelOpacity(pastelOpacity(currentTheme));
+        workspace.setFocusRingColor(ThemeCss.focusRingColor(currentTheme.background(), currentTheme.foreground()));
+        workspace.setPastelOpacity(ThemeCss.pastelOpacity(currentTheme.background()));
         workspace.focusFollowsMouseProperty().set(focusFollowsMouse.get());
-        workspace.setStyle("-fx-background-color: " + colorToCss(dividerColor(currentTheme.background())) + ";");
+        workspace.setStyle("-fx-background-color: " + ThemeCss.colorToCss(Color.TRANSPARENT) + ";");
         workspace.setHeaderContextMenuFactory(leaf -> createPaneContextMenu(leaf, workspace, tabPane));
         workspace.setOnEmpty(() -> Platform.runLater(() -> {
             var tp = findTabPane(workspace);
@@ -1729,7 +1711,7 @@ public class JHostty extends Application {
             }
         });
 
-        var dividerColor = dividerColor(currentTheme.background());
+        var dividerColor = Color.TRANSPARENT;
         var windowBg = currentTheme.background();
 
         var contentSplit = new SplitPane(tabs);
@@ -1737,7 +1719,7 @@ public class JHostty extends Application {
         contentSplit.getStyleClass().add("jhostty-content-split");
 
         var root = new BorderPane();
-        root.setStyle("-fx-background-color: " + colorToCss(windowBg) + ";");
+        root.setStyle("-fx-background-color: " + ThemeCss.colorToCss(windowBg) + ";");
 
         var toolbar = createWorkspaceToolbar(tabs);
         toolbar.setPickOnBounds(false);

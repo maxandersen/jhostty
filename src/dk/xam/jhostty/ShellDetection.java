@@ -14,7 +14,9 @@ public final class ShellDetection {
         @Override public String toString() { return label; }
     }
 
-    public static final boolean IS_WINDOWS = System.getProperty("os.name", "").toLowerCase().contains("win");
+    private static final String OS_NAME = System.getProperty("os.name", "").toLowerCase();
+    public static final boolean IS_MAC = OS_NAME.contains("mac");
+    public static final boolean IS_WINDOWS = OS_NAME.contains("win");
 
     public static List<ShellOption> detectTerminals() {
         return IS_WINDOWS ? detectWindowsShells() : detectUnixShells();

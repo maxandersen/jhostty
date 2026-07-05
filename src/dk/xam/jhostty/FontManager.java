@@ -9,9 +9,6 @@ import java.util.List;
 public final class FontManager {
     private FontManager() {}
 
-    public record FontOption(String family) {
-        @Override public String toString() { return family; }
-    }
 
     public static String defaultFontFamily() {
         var families = Font.getFamilies();
@@ -30,19 +27,19 @@ public final class FontManager {
                 .orElse(family), size);
     }
 
-    public static List<FontOption> detectFonts() {
+    public static List<String> detectFonts() {
         var preferred = List.of(
                 "JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font",
                 "JetBrains Mono", "FiraCode Nerd Font", "Hack Nerd Font",
                 "SF Mono", "Menlo", "Monaco", "Consolas", "Courier New");
         var all = Font.getFamilies();
-        var result = new ArrayList<FontOption>();
+        var result = new ArrayList<String>();
         var added = new LinkedHashSet<String>();
         for (var family : preferred) {
-            if (all.contains(family) && added.add(family)) result.add(new FontOption(family));
+            if (all.contains(family) && added.add(family)) result.add(family);
         }
         for (var family : all) {
-            if (added.add(family)) result.add(new FontOption(family));
+            if (added.add(family)) result.add(family);
         }
         return result;
     }
