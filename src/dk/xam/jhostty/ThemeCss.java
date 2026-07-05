@@ -85,7 +85,8 @@ final class ThemeCss {
                     .jhostty-sidebar .tree-cell:selected,
                     .jhostty-sidebar .tree-cell:filled:selected,
                     .jhostty-sidebar:focused .tree-cell:filled:selected,
-                    .jhostty-sidebar:focused .tree-cell:selected { -fx-background-color: %s; -fx-text-fill: %s; }
+                    .jhostty-sidebar:focused .tree-cell:selected,
+                    .jhostty-sidebar .tree-cell:filled:focused:selected { -fx-background-color: %s; -fx-text-fill: %s; }
                     .jhostty-sidebar .tree-cell:empty { -fx-background-color: transparent; }
                     .jhostty-sidebar .tree-disclosure-node .arrow { -fx-background-color: %s; }
                     .scroll-bar { -fx-background-color: transparent; -fx-padding: 0; }
@@ -160,8 +161,8 @@ final class ThemeCss {
                         tabBarBg, tabBarBg, tabSelectedBg, tabTextCss, tabSelectedTextCss,
                         tabCloseCss, tabCloseHoverCss,
                         dividerCss, menuBgCss, borderCss, fgCss, selCss, selText, sepCss,
-                        dividerCss, borderCss, menuBgCss, fgCss, selCss, selText, fgCss,
-                        fgCss, sepCss,
+                        dividerCss, borderCss, menuBgCss, fgCss, sepCss, fgCss,
+                        selCss, selText, fgCss,
                         // scrollbar
                         dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)",
                         dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)",
