@@ -674,12 +674,8 @@ public class JHostty extends Application {
         if (zmxAvailable) {
             var zmxHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader("zmx sessions"));
             zmxHeader.setExpanded(zmxSectionExpanded);
-            zmxHeader.expandedProperty().addListener((_, _, v) -> { zmxSectionExpanded = v; if (v) refreshZmxSessions(); });
             for (var session : zmxSessions) {
                 if (!session.ended()) zmxHeader.getChildren().add(new TreeItem<>(new SidebarItem.ZmxSessionItem(session)));
-            }
-            if (zmxHeader.getChildren().isEmpty() && !zmxSectionExpanded) {
-                zmxHeader.getChildren().add(new TreeItem<>(new SidebarItem.SectionHeader("loading...")));
             }
             finalRoot.getChildren().add(zmxHeader);
         }
@@ -687,10 +683,7 @@ public class JHostty extends Application {
             var herdrLabel = herdrState.connected() ? "herdr " + herdrState.serverVersion() : "herdr";
             var herdrHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader(herdrLabel));
             herdrHeader.setExpanded(herdrSectionExpanded);
-            herdrHeader.expandedProperty().addListener((_, _, v) -> { herdrSectionExpanded = v; herdrIntegration.shouldPoll = v && sidebarVisible; });
-            if (!herdrState.connected() && !herdrSectionExpanded) {
-                herdrHeader.getChildren().add(new TreeItem<>(new SidebarItem.SectionHeader("loading...")));
-            } else if (herdrState.connected()) {
+            if (herdrState.connected()) {
                 for (var ws : herdrState.workspaces()) {
                     var wsNode = new TreeItem<SidebarItem>(new SidebarItem.HerdrWorkspaceItem(ws));
                     wsNode.setExpanded(true);
