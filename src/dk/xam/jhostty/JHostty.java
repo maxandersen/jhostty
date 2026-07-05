@@ -192,7 +192,9 @@ public class JHostty extends Application {
 
         Platform.setImplicitExit(false);
         initZmx();
-        herdrIntegration.setOnUpdate(state -> { herdrState = state; rebuildAllSidebars(); });
+        herdrIntegration.setOnUpdate(state -> {
+            if (!state.equals(herdrState)) { herdrState = state; rebuildAllSidebars(); }
+        });
         herdrIntegration.start();
         restoreLayout();
         if (IS_MAC) {
@@ -1934,7 +1936,7 @@ public class JHostty extends Application {
                 var output = new String(proc.getInputStream().readAllBytes()).trim();
                 if (!proc.waitFor(5, TimeUnit.SECONDS)) { proc.destroyForcibly(); return; }
                 var sessions = ZmxSession.parseZmxList(output);
-                Platform.runLater(() -> { zmxSessions = sessions; rebuildAllSidebars(); });
+                if (!sessions.equals(zmxSessions)) Platform.runLater(() -> { zmxSessions = sessions; rebuildAllSidebars(); });
             } catch (Exception e) { debug("zmx list failed: " + e.getMessage()); }
         });
     }
