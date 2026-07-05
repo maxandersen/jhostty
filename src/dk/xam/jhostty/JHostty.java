@@ -671,28 +671,31 @@ public class JHostty extends Application {
         } else {
             finalRoot = root;
         }
-        if (zmxAvailable && !zmxSessions.isEmpty()) {
+        if (zmxAvailable) {
             var zmxHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader("zmx sessions"));
             zmxHeader.setExpanded(zmxSectionExpanded);
-            zmxHeader.expandedProperty().addListener((_, _, v) -> zmxSectionExpanded = v);
+            zmxHeader.expandedProperty().addListener((_, _, v) -> { zmxSectionExpanded = v; if (v) refreshZmxSessions(); });
             for (var session : zmxSessions) {
                 if (!session.ended()) zmxHeader.getChildren().add(new TreeItem<>(new SidebarItem.ZmxSessionItem(session)));
             }
-            if (!zmxHeader.getChildren().isEmpty()) finalRoot.getChildren().add(zmxHeader);
+            finalRoot.getChildren().add(zmxHeader);
         }
-        if (herdrState.connected()) {
-            var herdrHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader("herdr " + herdrState.serverVersion()));
+        {
+            var herdrLabel = herdrState.connected() ? "herdr " + herdrState.serverVersion() : "herdr";
+            var herdrHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader(herdrLabel));
             herdrHeader.setExpanded(herdrSectionExpanded);
             herdrHeader.expandedProperty().addListener((_, _, v) -> { herdrSectionExpanded = v; herdrIntegration.shouldPoll = v && sidebarVisible; });
-            for (var ws : herdrState.workspaces()) {
-                var wsNode = new TreeItem<SidebarItem>(new SidebarItem.HerdrWorkspaceItem(ws));
-                wsNode.setExpanded(true);
-                for (var pane : herdrState.panes()) {
-                    if (pane.workspaceId().equals(ws.workspaceId())) {
-                        wsNode.getChildren().add(new TreeItem<>(new SidebarItem.HerdrPaneItem(pane)));
+            if (herdrState.connected()) {
+                for (var ws : herdrState.workspaces()) {
+                    var wsNode = new TreeItem<SidebarItem>(new SidebarItem.HerdrWorkspaceItem(ws));
+                    wsNode.setExpanded(true);
+                    for (var pane : herdrState.panes()) {
+                        if (pane.workspaceId().equals(ws.workspaceId())) {
+                            wsNode.getChildren().add(new TreeItem<>(new SidebarItem.HerdrPaneItem(pane)));
+                        }
                     }
+                    herdrHeader.getChildren().add(wsNode);
                 }
-                herdrHeader.getChildren().add(wsNode);
             }
             finalRoot.getChildren().add(herdrHeader);
         }
