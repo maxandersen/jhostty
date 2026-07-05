@@ -28,25 +28,35 @@ final class HerdrTerminal implements Terminal {
         this.outputReader = new PipedInputStream(outputWriter, 64 * 1024);
 
         // Poll herdr for visible screen content
+        // Initial full screen read, then incremental via RECENT
         this.poller = Thread.ofVirtual().name("herdr-read-" + paneId).start(() -> {
-            String lastText = "";
+            // First: full visible screen
+            try (var h = Herdr.connect()) {
+                var node = h.raw("pane.read", dk.xam.jherdr.protocol.JherdrJson.MAPPER
+                        .valueToTree(new PaneReadParams(ReadFormat.ANSI, 200L, paneId, ReadSource.VISIBLE, false)));
+                var text = node.path("read").path("text").asText("");
+                if (!text.isEmpty()) {
+                    outputWriter.write(("\033[2J\033[H" + text).getBytes(StandardCharsets.UTF_8));
+                    outputWriter.flush();
+                }
+            } catch (Exception _) {}
+            // Then: poll RECENT for incremental output
+            String lastRecent = "";
             while (!closed) {
                 try (var h = Herdr.connect()) {
                     var node = h.raw("pane.read", dk.xam.jherdr.protocol.JherdrJson.MAPPER
-                            .valueToTree(new PaneReadParams(ReadFormat.ANSI, 200L, paneId, ReadSource.VISIBLE, false)));
+                            .valueToTree(new PaneReadParams(ReadFormat.ANSI, 50L, paneId, ReadSource.RECENT, false)));
                     var text = node.path("read").path("text").asText("");
-                    if (!text.equals(lastText)) {
-                        lastText = text;
-                        if (!text.isEmpty()) {
-                            var ansi = "\033[2J\033[H" + text;
-                            outputWriter.write(ansi.getBytes(StandardCharsets.UTF_8));
-                            outputWriter.flush();
-                        }
+                    if (!text.equals(lastRecent) && !text.isEmpty()) {
+                        lastRecent = text;
+                        // Stream the ANSI directly — it contains cursor movements and updates
+                        outputWriter.write(text.getBytes(StandardCharsets.UTF_8));
+                        outputWriter.flush();
                     }
                 } catch (Exception _) {
                     if (closed) break;
                 }
-                try { Thread.sleep(100); } catch (InterruptedException _) { break; }
+                try { Thread.sleep(50); } catch (InterruptedException _) { break; }
             }
         });
     }
