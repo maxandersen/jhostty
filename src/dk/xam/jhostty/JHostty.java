@@ -177,7 +177,7 @@ public class JHostty extends Application {
 
         Platform.setImplicitExit(false);
         initZmx();
- { restoreLayout(); }
+        restoreLayout();
         if (IS_MAC) {
             Platform.runLater(() -> { MacUtils.setAppName("jhostty"); MacUtils.setDockIcon(JHostty.class); });
         }
@@ -971,8 +971,6 @@ public class JHostty extends Application {
 
     static void applyThemeToAll() {
         forEachTerminal(v -> v.setTheme(currentTheme));
-        var divColor = Color.TRANSPARENT;
-        var divColorCss = ThemeCss.colorToCss(divColor);
         var windowBgCss = ThemeCss.colorToCss(currentTheme.background());
         // Update workspace pane backgrounds to match theme
         for (var w : windows) {
@@ -983,7 +981,7 @@ public class JHostty extends Application {
                         ws.setPaneBackground(currentTheme.background());
                         ws.setFocusRingColor(ThemeCss.focusRingColor(currentTheme.background(), currentTheme.foreground()));
                         ws.setPastelOpacity(ThemeCss.pastelOpacity(currentTheme.background()));
-                        ws.setStyle("-fx-background-color: " + divColorCss + ";");
+                        ws.setStyle("-fx-background-color: transparent;");
                     }
                 }
             }
@@ -1579,7 +1577,7 @@ public class JHostty extends Application {
         workspace.setFocusRingColor(ThemeCss.focusRingColor(currentTheme.background(), currentTheme.foreground()));
         workspace.setPastelOpacity(ThemeCss.pastelOpacity(currentTheme.background()));
         workspace.focusFollowsMouseProperty().set(focusFollowsMouse.get());
-        workspace.setStyle("-fx-background-color: " + ThemeCss.colorToCss(Color.TRANSPARENT) + ";");
+        workspace.setStyle("-fx-background-color: transparent;");
         workspace.setHeaderContextMenuFactory(leaf -> createPaneContextMenu(leaf, workspace, tabPane));
         workspace.setOnEmpty(() -> Platform.runLater(() -> {
             var tp = findTabPane(workspace);
@@ -1711,7 +1709,6 @@ public class JHostty extends Application {
             }
         });
 
-        var dividerColor = Color.TRANSPARENT;
         var windowBg = currentTheme.background();
 
         var contentSplit = new SplitPane(tabs);

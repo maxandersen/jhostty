@@ -12,16 +12,12 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            variant: linux-x86_64
             output: jhostty-linux-x86_64
           - os: macos-13
-            variant: osx-x86_64
             output: jhostty-osx-x86_64
           - os: macos-latest
-            variant: osx-aarch_64
             output: jhostty-osx-aarch_64
           - os: windows-latest
-            variant: windows-x86_64
             output: jhostty-windows-x86_64.exe
     steps:
       - uses: actions/checkout@v4
@@ -31,17 +27,13 @@ jobs:
           distribution: temurin
           java-version: 25-ea
 
-      - name: Install JBang
-        run: curl -Ls https://sh.jbang.dev | bash -s - app setup
-        shell: bash
+      - uses: jbangdev/setup-jbang@v1
 
       - name: Prepare app directory
         shell: bash
         run: |
           mkdir -p build/app
-          # Install jbang wrapper into app dir
           jbang wrapper install -d build/app
-          # Copy the application files
           cp -r jhostty.java src themes screenshots build/app/
 
       - name: Build with jpaxa

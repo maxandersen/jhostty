@@ -8,12 +8,12 @@ import java.nio.file.Path;
 public final class MacUtils {
     private MacUtils() {}
 
-    // Shared objc runtime handles — initialized once
+    // Shared objc runtime handles — initialized once, macOS only
     private static final Arena ARENA = Arena.global();
     private static final MethodHandle CLS, SEL, SEND0, SEND1, SENDV, SENDL;
     static {
         MethodHandle cls = null, sel = null, send0 = null, send1 = null, sendV = null, sendL = null;
-        try {
+        if (ShellDetection.IS_MAC) try {
             var linker = Linker.nativeLinker();
             var rt = SymbolLookup.libraryLookup("libobjc.dylib", ARENA);
             cls = linker.downcallHandle(rt.find("objc_getClass").orElseThrow(),
