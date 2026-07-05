@@ -1998,7 +1998,6 @@ public class JHostty extends Application {
         ws.setContentFactory(() -> createTerminal());
         configureWorkspace(ws, tabPane);
         var tab = createWorkspaceTab(ws, tabPane);
-        tab.setText("herdr: " + (workspace.label() != null ? workspace.label() : "workspace"));
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
     }
@@ -2029,7 +2028,6 @@ public class JHostty extends Application {
         ws.setContentFactory(() -> createTerminal());
         configureWorkspace(ws, tabPane);
         var tab = createWorkspaceTab(ws, tabPane);
-        tab.setText("herdr: " + (pane.label() != null ? pane.label() : pane.paneId().toString()));
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
     }
