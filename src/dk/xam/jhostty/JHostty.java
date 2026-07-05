@@ -1970,93 +1970,84 @@ public class JHostty extends Application {
 
     // --- Herdr integration ---
 
-    /** Open a jhostty window mirroring a herdr workspace — one tab per herdr tab, split panes per herdr panes. */
+    /** Open a jhostty window mirroring a herdr workspace using layout.export for proper split tree. */
     static void attachHerdrWorkspace(dk.xam.jherdr.api.results.WorkspaceInfo workspace) {
         Thread.ofVirtual().name("herdr-attach").start(() -> {
             try (var h = dk.xam.jherdr.Herdr.connect()) {
                 var tabs = h.api().tab().list(new dk.xam.jherdr.api.params.TabListParams(workspace.workspaceId())).tabs();
-                var panes = h.api().pane().list(new dk.xam.jherdr.api.params.PaneListParams(workspace.workspaceId())).panes();
+                // Export layout tree for each tab
+                var layouts = new ArrayList<com.fasterxml.jackson.databind.JsonNode>();
+                for (var tab : tabs) {
+                    var params = dk.xam.jherdr.protocol.JherdrJson.MAPPER.createObjectNode();
+                    params.put("tab_id", tab.tabId().toString());
+                    var result = h.raw("layout.export", params);
+                    layouts.add(result.path("layout"));
+                }
                 var label = workspace.label() != null ? workspace.label() : "herdr";
-                Platform.runLater(() -> buildHerdrWindow(label, tabs, panes));
+                Platform.runLater(() -> buildHerdrWindow(label, tabs, layouts));
             } catch (Exception e) { debug("herdr attach failed: " + e.getMessage()); }
         });
     }
 
     /** Double-click a herdr pane — open its workspace. */
     static void attachHerdrPane(dk.xam.jherdr.api.results.PaneInfo pane) {
-        // Find the workspace this pane belongs to and open the full workspace
         for (var ws : herdrState.workspaces()) {
-            if (ws.workspaceId().equals(pane.workspaceId())) {
-                attachHerdrWorkspace(ws);
-                return;
-            }
+            if (ws.workspaceId().equals(pane.workspaceId())) { attachHerdrWorkspace(ws); return; }
         }
     }
 
-    /** Build a jhostty window from herdr tabs and panes. */
+    /** Build a jhostty window from herdr layout trees. */
     private static void buildHerdrWindow(String wsLabel, List<dk.xam.jherdr.api.results.TabInfo> tabs,
-                                          List<dk.xam.jherdr.api.results.PaneInfo> panes) {
+                                          List<com.fasterxml.jackson.databind.JsonNode> layouts) {
         var stage = newWindowEmpty();
         if (stage == null) return;
         var tabPane = getTabPane(stage);
         if (tabPane == null) return;
         stage.setTitle("herdr: " + wsLabel);
 
-        for (var herdrTab : tabs) {
-            // Find panes belonging to this tab
-            var tabPanes = panes.stream()
-                    .filter(p -> p.tabId().equals(herdrTab.tabId()))
-                    .toList();
-            if (tabPanes.isEmpty()) continue;
-
-            if (tabPanes.size() == 1) {
-                // Single pane tab
-                var view = createHerdrTerminal(tabPanes.getFirst());
-                if (view == null) continue;
-                var ws = SplitWorkspace.createSingle(() -> view);
-                ws.setContentFactory(() -> createTerminal());
-                configureWorkspace(ws, tabPane);
-                var tab = createWorkspaceTab(ws, tabPane);
-                tabPane.getTabs().add(tab);
-            } else {
-                // Multi-pane tab — stack vertically
-                var first = tabPanes.getFirst();
-                var firstView = createHerdrTerminal(first);
-                if (firstView == null) continue;
-                var ws = new SplitWorkspace();
-                ws.setContentFactory(() -> createTerminal());
-                var firstLeaf = new LeafPane(PaneId.next(), firstView,
-                        first.label() != null ? first.label() : first.paneId().toString());
-                var children = new ArrayList<SplitNode>();
-                var weights = new ArrayList<Double>();
-                children.add(firstLeaf);
-                weights.add(1.0 / tabPanes.size());
-                for (int i = 1; i < tabPanes.size(); i++) {
-                    var hp = tabPanes.get(i);
-                    var v = createHerdrTerminal(hp);
-                    if (v == null) continue;
-                    children.add(new LeafPane(PaneId.next(), v,
-                            hp.label() != null ? hp.label() : hp.paneId().toString()));
-                    weights.add(1.0 / tabPanes.size());
-                }
-                if (children.size() >= 2) {
-                    ws.setRoot(new Split(Orientation.HORIZONTAL, children, weights));
-                } else {
-                    ws.setRoot(firstLeaf);
-                }
-                configureWorkspace(ws, tabPane);
-                var tab = createWorkspaceTab(ws, tabPane);
-                tabPane.getTabs().add(tab);
-            }
+        for (int i = 0; i < tabs.size() && i < layouts.size(); i++) {
+            var root = layouts.get(i).path("root");
+            if (root.isMissingNode()) continue;
+            var tree = parseHerdrLayoutNode(root);
+            if (tree == null) continue;
+            var ws = new SplitWorkspace();
+            ws.setContentFactory(() -> createTerminal());
+            configureWorkspace(ws, tabPane);
+            ws.setRoot(tree);
+            var tab = createWorkspaceTab(ws, tabPane);
+            tabPane.getTabs().add(tab);
         }
         if (tabPane.getTabs().isEmpty()) newTab(tabPane);
         tabPane.getSelectionModel().selectFirst();
     }
 
+    /** Recursively parse a herdr BSP layout node into a jhostty SplitNode. */
+    private static SplitNode parseHerdrLayoutNode(com.fasterxml.jackson.databind.JsonNode node) {
+        var type = node.path("type").asText();
+        if ("pane".equals(type)) {
+            var paneIdStr = node.path("pane_id").asText(null);
+            if (paneIdStr == null) return null;
+            var herdrPaneId = new dk.xam.jherdr.api.ids.PaneId(paneIdStr);
+            var view = createHerdrTerminal(herdrPaneId, node.path("label").asText(paneIdStr));
+            if (view == null) return null;
+            return new LeafPane(PaneId.next(), view, paneIdStr);
+        } else if ("split".equals(type)) {
+            var direction = node.path("direction").asText("right");
+            var ratio = node.path("ratio").asDouble(0.5);
+            var first = parseHerdrLayoutNode(node.path("first"));
+            var second = parseHerdrLayoutNode(node.path("second"));
+            if (first == null && second == null) return null;
+            if (first == null) return second;
+            if (second == null) return first;
+            var orient = "down".equals(direction) ? Orientation.VERTICAL : Orientation.HORIZONTAL;
+            return new Split(orient, List.of(first, second), List.of(ratio, 1.0 - ratio));
+        }
+        return null;
+    }
+
     /** Create a TerminalView backed by a herdr pane. */
-    static TerminalView createHerdrTerminal(dk.xam.jherdr.api.results.PaneInfo herdrPane) {
+    static TerminalView createHerdrTerminal(dk.xam.jherdr.api.ids.PaneId paneId, String label) {
         try {
-            var paneId = herdrPane.paneId();
             var view = new TerminalView((columns, rows) -> new HerdrTerminal(paneId));
             view.getProperties().put(ZOOM_KEY, currentZoom);
             view.setFont(FontManager.resolveFont(currentFontFamily, currentZoom));
