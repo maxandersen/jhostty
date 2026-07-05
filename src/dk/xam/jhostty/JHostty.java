@@ -1735,8 +1735,8 @@ public class JHostty extends Application {
                     if (tp2 != null) { tp2.getSelectionModel().select(ti.tab()); var stg = findStage(tp2); if (stg != null) { stg.toFront(); stg.requestFocus(); } Platform.runLater(() -> focusFirstTerminal(ti.tab().getContent())); }
                 }
                 case SidebarItem.WindowItem wi -> { wi.stage().toFront(); wi.stage().requestFocus(); }
-                case SidebarItem.HerdrWorkspaceItem _ -> {} // ponytail: no action yet, just display
-                case SidebarItem.HerdrPaneItem _ -> {} // ponytail: no action yet, just display
+                case SidebarItem.HerdrWorkspaceItem hwi -> attachHerdrWorkspace(hwi.workspace());
+                case SidebarItem.HerdrPaneItem hpi -> attachHerdrPane(hpi.pane());
                 case SidebarItem.ZmxSessionItem zi -> {
                     var existing = findTerminalForZmxSession(zi.session().name());
                     if (existing != null) {
@@ -1966,6 +1966,81 @@ public class JHostty extends Application {
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
         Platform.runLater(JHostty::saveState);
+    }
+
+    // --- Herdr integration ---
+
+    /** Focus a herdr workspace and open a terminal attached to the herdr session. */
+    static void attachHerdrWorkspace(dk.xam.jherdr.api.results.WorkspaceInfo workspace) {
+        var herdrPath = ShellDetection.resolveExecutable("herdr");
+        if (herdrPath == null) return;
+        // Focus the workspace in herdr first
+        Thread.ofVirtual().name("herdr-focus").start(() -> {
+            try (var h = dk.xam.jherdr.Herdr.connect()) {
+                h.api().workspace().focus(new dk.xam.jherdr.api.params.WorkspaceTarget(workspace.workspaceId()));
+            } catch (Exception _) {}
+        });
+        // Check if we already have a terminal attached to this herdr session
+        var existing = findTerminalForHerdr();
+        if (existing != null) {
+            var stg = findStageFor(existing); if (stg != null) { stg.toFront(); stg.requestFocus(); }
+            var tp = findTabPane(existing); if (tp != null) { var tab = findTab(existing); if (tab != null) tp.getSelectionModel().select(tab); }
+            Platform.runLater(existing::requestFocus);
+            return;
+        }
+        // Open a new terminal running herdr (attaches to the running session)
+        var cmd = List.of(herdrPath.toString());
+        var tabPane = findActiveTabPane();
+        if (tabPane == null) return;
+        var view = createTerminalClean(cmd);
+        if (view == null) return;
+        var ws = SplitWorkspace.createSingle(() -> view);
+        ws.setContentFactory(() -> createTerminal());
+        configureWorkspace(ws, tabPane);
+        var tab = createWorkspaceTab(ws, tabPane);
+        tab.setText("herdr: " + (workspace.label() != null ? workspace.label() : "workspace"));
+        tabPane.getTabs().add(tab);
+        tabPane.getSelectionModel().select(tab);
+    }
+
+    /** Focus a herdr pane — focuses its workspace then the pane itself. */
+    static void attachHerdrPane(dk.xam.jherdr.api.results.PaneInfo pane) {
+        var herdrPath = ShellDetection.resolveExecutable("herdr");
+        if (herdrPath == null) return;
+        Thread.ofVirtual().name("herdr-focus").start(() -> {
+            try (var h = dk.xam.jherdr.Herdr.connect()) {
+                h.api().pane().focus(new dk.xam.jherdr.api.params.PaneTarget(pane.paneId()));
+            } catch (Exception _) {}
+        });
+        // Reuse existing herdr terminal or open new
+        var existing = findTerminalForHerdr();
+        if (existing != null) {
+            var stg = findStageFor(existing); if (stg != null) { stg.toFront(); stg.requestFocus(); }
+            var tp = findTabPane(existing); if (tp != null) { var tab = findTab(existing); if (tab != null) tp.getSelectionModel().select(tab); }
+            Platform.runLater(existing::requestFocus);
+            return;
+        }
+        var cmd = List.of(herdrPath.toString());
+        var tabPane = findActiveTabPane();
+        if (tabPane == null) return;
+        var view = createTerminalClean(cmd);
+        if (view == null) return;
+        var ws = SplitWorkspace.createSingle(() -> view);
+        ws.setContentFactory(() -> createTerminal());
+        configureWorkspace(ws, tabPane);
+        var tab = createWorkspaceTab(ws, tabPane);
+        tab.setText("herdr: " + (pane.label() != null ? pane.label() : pane.paneId().toString()));
+        tabPane.getTabs().add(tab);
+        tabPane.getSelectionModel().select(tab);
+    }
+
+    static TerminalView findTerminalForHerdr() {
+        var result = new ArrayList<TerminalView>();
+        forEachTerminal(v -> {
+            var cmd = getTerminalCommand(v);
+            if (!cmd.isEmpty() && java.nio.file.Path.of(cmd.getFirst()).getFileName().toString().equals("herdr")) result.add(v);
+        });
+        return result.isEmpty() ? null : result.getFirst();
     }
 
     // --- Tab Overview (delegated to TabOverview.java) ---
