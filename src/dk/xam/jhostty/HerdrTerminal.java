@@ -1,8 +1,6 @@
 package dk.xam.jhostty;
 
 import dk.xam.jherdr.Herdr;
-import dk.xam.jherdr.EventFilter;
-import dk.xam.jherdr.EventSubscription;
 import dk.xam.jherdr.api.ids.PaneId;
 import dk.xam.jherdr.api.params.*;
 import io.github.vlaaad.ghosttyfx.Terminal;
@@ -30,46 +28,25 @@ final class HerdrTerminal implements Terminal {
         this.outputReader = new PipedInputStream(outputWriter, 64 * 1024);
 
         // Poll herdr for visible screen content
+        // ponytail: poll VISIBLE with dedup. Upgrade to event subscription when herdr supports continuous output events.
         this.poller = Thread.ofVirtual().name("herdr-read-" + paneId).start(() -> {
-            // Subscribe to output changes, refresh full VISIBLE screen on each event
-            try {
-                var h = Herdr.connect();
-                // Initial full screen
-                refreshVisible(h);
-                // Subscribe: any output on this pane triggers an event
-                var filter = EventFilter.of(new Subscription.PaneOutputMatchedSub(
-                        50L, new OutputMatch.RegexMatch("[\\s\\S]"), paneId, ReadSource.RECENT, null));
-                var sub = h.events().subscribe(filter);
-                sub.onEvent(_ -> {
-                    if (closed) return;
-                    try (var h2 = Herdr.connect()) { refreshVisible(h2); }
-                    catch (Exception _) {}
-                });
-                // Keep alive until closed
-                while (!closed) { try { Thread.sleep(1000); } catch (InterruptedException _) { break; } }
-                sub.close();
-                h.close();
-            } catch (Exception _) {
-                // Fallback to polling if subscription fails
-                while (!closed) {
-                    try (var h = Herdr.connect()) { refreshVisible(h); }
-                    catch (Exception _2) { if (closed) break; }
-                    try { Thread.sleep(100); } catch (InterruptedException _2) { break; }
+            String lastText = "";
+            while (!closed) {
+                try (var h = Herdr.connect()) {
+                    var node = h.raw("pane.read", dk.xam.jherdr.protocol.JherdrJson.MAPPER
+                            .valueToTree(new PaneReadParams(ReadFormat.ANSI, 200L, paneId, ReadSource.VISIBLE, false)));
+                    var text = node.path("read").path("text").asText("");
+                    if (!text.equals(lastText) && !text.isEmpty()) {
+                        lastText = text;
+                        outputWriter.write(("\033[2J\033[H" + text).getBytes(StandardCharsets.UTF_8));
+                        outputWriter.flush();
+                    }
+                } catch (Exception _) {
+                    if (closed) break;
                 }
+                try { Thread.sleep(100); } catch (InterruptedException _) { break; }
             }
         });
-    }
-
-    private void refreshVisible(Herdr h) {
-        try {
-            var node = h.raw("pane.read", dk.xam.jherdr.protocol.JherdrJson.MAPPER
-                    .valueToTree(new PaneReadParams(ReadFormat.ANSI, 200L, paneId, ReadSource.VISIBLE, false)));
-            var text = node.path("read").path("text").asText("");
-            if (!text.isEmpty()) {
-                outputWriter.write(("\033[2J\033[H" + text).getBytes(StandardCharsets.UTF_8));
-                outputWriter.flush();
-            }
-        } catch (Exception _) {}
     }
 
     @Override
