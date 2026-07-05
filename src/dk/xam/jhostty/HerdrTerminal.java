@@ -29,17 +29,14 @@ final class HerdrTerminal implements Terminal {
 
         // Poll herdr for visible screen content
         this.poller = Thread.ofVirtual().name("herdr-read-" + paneId).start(() -> {
-            long lastRevision = -1;
+            String lastText = "";
             while (!closed) {
                 try (var h = Herdr.connect()) {
                     var node = h.raw("pane.read", dk.xam.jherdr.protocol.JherdrJson.MAPPER
                             .valueToTree(new PaneReadParams(ReadFormat.ANSI, 200L, paneId, ReadSource.VISIBLE, false)));
-                    var read = node.path("read");
-                    long rev = read.path("revision").asLong(-1);
-                    if (rev != lastRevision) {
-                        lastRevision = rev;
-                        var text = read.path("text").asText("");
-                        System.err.println("[jhostty] HerdrTerminal " + paneId + " rev=" + rev + " len=" + text.length());
+                    var text = node.path("read").path("text").asText("");
+                    if (!text.equals(lastText)) {
+                        lastText = text;
                         if (!text.isEmpty()) {
                             var ansi = "\033[2J\033[H" + text;
                             outputWriter.write(ansi.getBytes(StandardCharsets.UTF_8));
@@ -49,7 +46,7 @@ final class HerdrTerminal implements Terminal {
                 } catch (Exception _) {
                     if (closed) break;
                 }
-                try { Thread.sleep(250); } catch (InterruptedException _) { break; }
+                try { Thread.sleep(100); } catch (InterruptedException _) { break; }
             }
         });
     }
