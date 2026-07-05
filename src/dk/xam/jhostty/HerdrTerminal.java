@@ -23,6 +23,7 @@ final class HerdrTerminal implements Terminal {
 
     HerdrTerminal(PaneId paneId) throws IOException {
         this.paneId = paneId;
+        System.err.println("[jhostty] HerdrTerminal created for pane: " + paneId);
         this.outputWriter = new PipedOutputStream();
         this.outputReader = new PipedInputStream(outputWriter, 64 * 1024);
 
@@ -38,6 +39,7 @@ final class HerdrTerminal implements Terminal {
                     if (rev != lastRevision) {
                         lastRevision = rev;
                         var text = read.path("text").asText("");
+                        System.err.println("[jhostty] HerdrTerminal " + paneId + " rev=" + rev + " len=" + text.length());
                         if (!text.isEmpty()) {
                             var ansi = "\033[2J\033[H" + text;
                             outputWriter.write(ansi.getBytes(StandardCharsets.UTF_8));
