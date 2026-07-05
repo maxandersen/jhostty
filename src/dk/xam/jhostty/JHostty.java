@@ -87,6 +87,7 @@ public class JHostty extends Application {
 
     // Layout
     static String lastGoodLayout = null;
+    static boolean showThemesInPalette = false;
 
 
     // Shared focus-follows-mouse state
@@ -1991,6 +1992,7 @@ public class JHostty extends Application {
         commands.add(new CommandPalette.PaletteItem("Focus Next Pane", sc + "Tab", "Pane", () -> { var ws = activeWorkspace(); if (ws != null) ws.focusNext(); }));
         commands.add(new CommandPalette.PaletteItem("Toggle Pane Read-Only", "", "Pane", () -> toggleReadOnly()));
         commands.add(new CommandPalette.PaletteItem("Toggle Tab Read-Only", "", "Pane", () -> toggleTabReadOnly()));
+        commands.add(new CommandPalette.PaletteItem("Toggle Pastel Tinting", "", "View", () -> forEachWorkspace(tabs, ws -> ws.pastelTintingProperty().set(!ws.pastelTintingProperty().get()))));
         commands.add(new CommandPalette.PaletteItem("Help", sc + sh + "/", "Help", () -> showHelp()));
         commands.add(new CommandPalette.PaletteItem("Reset to Defaults", "", "Help", () -> resetToDefaults()));
         commands.add(new CommandPalette.PaletteItem("Panic!", "", "Help", () -> resetToDefaults()));
@@ -2003,7 +2005,11 @@ public class JHostty extends Application {
             commands.add(new CommandPalette.PaletteItem("Switch to: " + title, i < 9 ? sc + (i + 1) : "", "Tabs", () -> tabs.getSelectionModel().select(idx)));
         }
 
-        for (var t : Themes.all()) {
+        commands.add(new CommandPalette.PaletteItem(
+            showThemesInPalette ? "Hide Themes in Palette" : "Show Themes in Palette",
+            "", "View", () -> { showThemesInPalette = !showThemesInPalette; }));
+
+        if (showThemesInPalette) for (var t : Themes.all()) {
             final var theme = t;
             commands.add(new CommandPalette.PaletteItem("Theme: " + t.label(), "", "Themes", () -> {
                 currentThemeName = theme.label(); currentTheme = theme.theme(); applyThemeToAll(); saveState();
