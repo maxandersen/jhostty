@@ -1984,6 +1984,8 @@ public class JHostty extends Application {
                     layouts.add(result.path("layout"));
                 }
                 var label = workspace.label() != null ? workspace.label() : "herdr";
+                debug("herdr attach: workspace=" + workspace.workspaceId() + " tabs=" + tabs.size() + " layouts=" + layouts.size());
+                for (int li = 0; li < layouts.size(); li++) debug("  tab " + tabs.get(li).tabId() + ": " + layouts.get(li).path("root").path("type").asText());
                 Platform.runLater(() -> buildHerdrWindow(label, tabs, layouts));
             } catch (Exception e) { debug("herdr attach failed: " + e.getMessage()); }
         });
