@@ -1922,7 +1922,6 @@ public class JHostty extends Application {
         workspace.setContentFactory(() -> createTerminal());
         configureWorkspace(workspace, tabPane);
         var tab = createWorkspaceTab(workspace, tabPane);
-        tab.setText(commandBaseName(cmd));
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
         Platform.runLater(JHostty::saveState);
