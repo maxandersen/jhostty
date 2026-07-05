@@ -83,6 +83,8 @@ public class JHostty extends Application {
     static volatile boolean zmxAvailable = false;
     static final HerdrIntegration herdrIntegration = new HerdrIntegration();
     static HerdrIntegration.HerdrState herdrState = HerdrIntegration.HerdrState.DISCONNECTED;
+    static volatile boolean zmxSectionExpanded = false;
+    static volatile boolean herdrSectionExpanded = false;
     static Timeline zmxRefreshTimer;
 
     // Layout
@@ -671,7 +673,8 @@ public class JHostty extends Application {
         }
         if (zmxAvailable && !zmxSessions.isEmpty()) {
             var zmxHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader("zmx sessions"));
-            zmxHeader.setExpanded(true);
+            zmxHeader.setExpanded(zmxSectionExpanded);
+            zmxHeader.expandedProperty().addListener((_, _, v) -> zmxSectionExpanded = v);
             for (var session : zmxSessions) {
                 if (!session.ended()) zmxHeader.getChildren().add(new TreeItem<>(new SidebarItem.ZmxSessionItem(session)));
             }
@@ -679,7 +682,8 @@ public class JHostty extends Application {
         }
         if (herdrState.connected()) {
             var herdrHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader("herdr " + herdrState.serverVersion()));
-            herdrHeader.setExpanded(true);
+            herdrHeader.setExpanded(herdrSectionExpanded);
+            herdrHeader.expandedProperty().addListener((_, _, v) -> { herdrSectionExpanded = v; herdrIntegration.shouldPoll = v && sidebarVisible; });
             for (var ws : herdrState.workspaces()) {
                 var wsNode = new TreeItem<SidebarItem>(new SidebarItem.HerdrWorkspaceItem(ws));
                 wsNode.setExpanded(true);
@@ -1928,6 +1932,7 @@ public class JHostty extends Application {
     }
 
     static void refreshZmxSessions() {
+        if (!sidebarVisible || !zmxSectionExpanded) return;
         Thread.ofVirtual().name("zmx-list").start(() -> {
             try {
                 var pb = new ProcessBuilder("zmx", "list");
@@ -1987,7 +1992,7 @@ public class JHostty extends Application {
                 debug("herdr attach: workspace=" + workspace.workspaceId() + " tabs=" + tabs.size() + " layouts=" + layouts.size());
                 for (int li = 0; li < layouts.size(); li++) debug("  tab " + tabs.get(li).tabId() + ": " + layouts.get(li).path("root").path("type").asText());
                 Platform.runLater(() -> buildHerdrWindow(label, tabs, layouts));
-            } catch (Exception e) { debug("herdr attach failed: " + e.getMessage()); }
+            } catch (Exception e) { System.err.println("[jhostty] herdr attach failed: " + e); e.printStackTrace(); }
         });
     }
 

@@ -26,6 +26,7 @@ final class HerdrIntegration {
     private volatile boolean running;
     private Thread poller;
     private Consumer<HerdrState> onUpdate;
+    volatile boolean shouldPoll = false;
 
     void setOnUpdate(Consumer<HerdrState> callback) { this.onUpdate = callback; }
 
@@ -45,7 +46,7 @@ final class HerdrIntegration {
     private void pollLoop() {
         while (running) {
             try {
-                var state = fetchState();
+                var state = shouldPoll ? fetchState() : HerdrState.DISCONNECTED;
                 if (onUpdate != null) Platform.runLater(() -> onUpdate.accept(state));
             } catch (Exception _) {
                 if (onUpdate != null) Platform.runLater(() -> onUpdate.accept(HerdrState.DISCONNECTED));
