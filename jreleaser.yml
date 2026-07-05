@@ -1,0 +1,44 @@
+project:
+  name: jhostty
+  description: A modern terminal emulator built with JavaFX and Ghostty
+  license: MIT
+  links:
+    homepage: https://github.com/maxandersen/jhostty
+  authors:
+    - Max Rydahl Andersen
+  java:
+    groupId: dk.xam
+    artifactId: jhostty
+    mainClass: dk.xam.jhostty.JHostty
+
+release:
+  github:
+    overwrite: true
+    tagName: early-access
+    releaseName: Early Access
+    prerelease:
+      enabled: true
+      pattern: .*-ea$|early-access
+    changelog:
+      enabled: true
+      formatted: ALWAYS
+      preset: conventional-commits
+      contributors:
+        enabled: false
+    update:
+      enabled: true
+      sections:
+        - ASSETS
+
+distributions:
+  jhostty:
+    type: BINARY
+    artifacts:
+      - path: artifacts/jhostty-linux-x86_64
+        platform: linux-x86_64
+      - path: artifacts/jhostty-osx-x86_64
+        platform: osx-x86_64
+      - path: artifacts/jhostty-osx-aarch_64
+        platform: osx-aarch_64
+      - path: artifacts/jhostty-windows-x86_64.exe
+        platform: windows-x86_64

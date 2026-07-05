@@ -1,0 +1,88 @@
+name: Early Access
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            variant: linux-x86_64
+            output: jhostty-linux-x86_64
+          - os: macos-13
+            variant: osx-x86_64
+            output: jhostty-osx-x86_64
+          - os: macos-latest
+            variant: osx-aarch_64
+            output: jhostty-osx-aarch_64
+          - os: windows-latest
+            variant: windows-x86_64
+            output: jhostty-windows-x86_64.exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25-ea
+
+      - name: Install JBang
+        run: curl -Ls https://sh.jbang.dev | bash -s - app setup
+        shell: bash
+
+      - name: Prepare app directory
+        shell: bash
+        run: |
+          mkdir -p build/app
+          # Install jbang wrapper into app dir
+          jbang wrapper install -d build/app
+          # Copy the application files
+          cp -r jhostty.java src themes screenshots build/app/
+
+      - name: Build with jpaxa
+        shell: bash
+        run: |
+          jbang jpaxa-earlyaccess@jbangdev/jpaxa build \
+            build/app \
+            --output ${{ matrix.output }} \
+            --directory dist \
+            --identifier dev.xam.jhostty \
+            --message "Extracting jhostty..." \
+            -- "{{app}}/jbang" "{{app}}/jhostty.java"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: dist/${{ matrix.output }}
+
+  release:
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lR artifacts/
+
+      - name: JReleaser early-access release
+        uses: jreleaser/release-action@v2
+        with:
+          arguments: full-release
+        env:
+          JRELEASER_PROJECT_VERSION: early-access
+          JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
