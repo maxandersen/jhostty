@@ -82,7 +82,7 @@ final class ThemeCss {
                     .jhostty-sidebar .label { -fx-text-fill: %s; }
                     .jhostty-sidebar .separator .line { -fx-border-color: %s; -fx-border-width: 0.5 0 0 0; }
                     .jhostty-sidebar .tree-cell { -fx-text-fill: %s; -fx-background-color: transparent; -fx-font-size: 12; -fx-padding: 3 8 3 4; }
-                    .jhostty-sidebar .tree-cell:selected { -fx-background-color: %s; -fx-text-fill: %s; }
+                    .jhostty-sidebar .tree-cell:selected, .jhostty-sidebar .tree-cell:filled:selected { -fx-background-color: %s; -fx-text-fill: %s; }
                     .jhostty-sidebar .tree-cell:empty { -fx-background-color: transparent; }
                     .jhostty-sidebar .tree-disclosure-node .arrow { -fx-background-color: %s; }
                     .scroll-bar { -fx-background-color: transparent; -fx-padding: 0; }
