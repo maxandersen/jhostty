@@ -22,6 +22,7 @@
 //SOURCES src/dk/xam/jhostty/ThemeCss.java
 //SOURCES src/dk/xam/jhostty/ZmxSession.java
 //SOURCES src/dk/xam/jhostty/HerdrIntegration.java
+//SOURCES src/dk/xam/jhostty/HerdrTerminal.java
 //SOURCES src/dk/xam/themes/ColorUtil.java
 //SOURCES src/dk/xam/themes/TerminalColorScheme.java
 //SOURCES src/dk/xam/themes/ThemeRegistry.java
