@@ -59,27 +59,21 @@ final class HerdrTerminal implements Terminal {
 
     @Override
     public OutputStream input() {
-        // Writes to this stream get sent to herdr as text input
         return new OutputStream() {
-            private final ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            @Override public void write(int b) throws IOException { write(new byte[]{(byte) b}, 0, 1); }
 
-            @Override public void write(int b) { buf.write(b); }
-
-            @Override public void write(byte[] b, int off, int len) { buf.write(b, off, len); }
-
-            @Override public void flush() {
-                if (buf.size() == 0) return;
-                var text = buf.toString(StandardCharsets.UTF_8);
-                buf.reset();
-                if (closed || text.isEmpty()) return;
+            @Override public void write(byte[] b, int off, int len) {
+                if (closed || len == 0) return;
+                var text = new String(b, off, len, StandardCharsets.UTF_8);
+                if (text.isEmpty()) return;
                 Thread.ofVirtual().name("herdr-send").start(() -> {
                     try (var h = Herdr.connect()) {
                         h.api().pane().sendText(new PaneSendTextParams(paneId, text));
-                    } catch (Exception _) {}
+                    } catch (Exception e) {
+                        System.err.println("[jhostty] herdr send failed for " + paneId + ": " + e.getMessage());
+                    }
                 });
             }
-
-            @Override public void close() { flush(); }
         };
     }
 
