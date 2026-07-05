@@ -678,6 +678,9 @@ public class JHostty extends Application {
             for (var session : zmxSessions) {
                 if (!session.ended()) zmxHeader.getChildren().add(new TreeItem<>(new SidebarItem.ZmxSessionItem(session)));
             }
+            if (zmxHeader.getChildren().isEmpty() && !zmxSectionExpanded) {
+                zmxHeader.getChildren().add(new TreeItem<>(new SidebarItem.SectionHeader("loading...")));
+            }
             finalRoot.getChildren().add(zmxHeader);
         }
         {
@@ -685,7 +688,9 @@ public class JHostty extends Application {
             var herdrHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader(herdrLabel));
             herdrHeader.setExpanded(herdrSectionExpanded);
             herdrHeader.expandedProperty().addListener((_, _, v) -> { herdrSectionExpanded = v; herdrIntegration.shouldPoll = v && sidebarVisible; });
-            if (herdrState.connected()) {
+            if (!herdrState.connected() && !herdrSectionExpanded) {
+                herdrHeader.getChildren().add(new TreeItem<>(new SidebarItem.SectionHeader("loading...")));
+            } else if (herdrState.connected()) {
                 for (var ws : herdrState.workspaces()) {
                     var wsNode = new TreeItem<SidebarItem>(new SidebarItem.HerdrWorkspaceItem(ws));
                     wsNode.setExpanded(true);
@@ -1752,7 +1757,10 @@ public class JHostty extends Application {
                         Platform.runLater(existing::requestFocus);
                     } else attachZmxSession(zi.session().name());
                 }
-                case SidebarItem.SectionHeader _ -> {}
+                case SidebarItem.SectionHeader sh -> {
+                    if (sh.title().startsWith("zmx")) { zmxSectionExpanded = true; refreshZmxSessions(); }
+                    else if (sh.title().startsWith("herdr")) { herdrSectionExpanded = true; herdrIntegration.shouldPoll = true; }
+                }
             }
         });
 
