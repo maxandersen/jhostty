@@ -81,6 +81,8 @@ public class JHostty extends Application {
     // zmx
     static List<ZmxSession> zmxSessions = List.of();
     static volatile boolean zmxAvailable = false;
+    static final HerdrIntegration herdrIntegration = new HerdrIntegration();
+    static HerdrIntegration.HerdrState herdrState = HerdrIntegration.HerdrState.DISCONNECTED;
     static Timeline zmxRefreshTimer;
 
     // Layout
@@ -123,6 +125,19 @@ public class JHostty extends Application {
         record SectionHeader(String title) implements SidebarItem {
             public String label() { return title; }
             @Override public String toString() { return label(); }
+        }
+        record HerdrWorkspaceItem(dk.xam.jherdr.api.results.WorkspaceInfo workspace) implements SidebarItem {
+            public String label() { return workspace.label() != null ? workspace.label() : "workspace-" + workspace.number(); }
+        }
+        record HerdrPaneItem(dk.xam.jherdr.api.results.PaneInfo pane) implements SidebarItem {
+            public String label() {
+                var name = pane.label() != null ? pane.label() : pane.paneId().toString();
+                var agent = pane.displayAgent();
+                var status = pane.agentStatus();
+                if (agent != null && status != null) name += " [" + agent + ": " + status + "]";
+                else if (agent != null) name += " [" + agent + "]";
+                return name;
+            }
         }
         record ZmxSessionItem(ZmxSession session) implements SidebarItem {
             public String label() { return session.displayLabel(); }
@@ -177,6 +192,8 @@ public class JHostty extends Application {
 
         Platform.setImplicitExit(false);
         initZmx();
+        herdrIntegration.setOnUpdate(state -> { herdrState = state; rebuildAllSidebars(); });
+        herdrIntegration.start();
         restoreLayout();
         if (IS_MAC) {
             Platform.runLater(() -> { MacUtils.setAppName("jhostty"); MacUtils.setDockIcon(JHostty.class); });
@@ -188,6 +205,7 @@ public class JHostty extends Application {
         debug("stop: cleaning up resources");
         shuttingDown = true;
         if (zmxRefreshTimer != null) zmxRefreshTimer.stop();
+        herdrIntegration.stop();
         var allWindows = new ArrayList<>(windows);
         for (var w : allWindows) {
             var tp = getTabPane(w);
@@ -201,6 +219,7 @@ public class JHostty extends Application {
         saveState();
         shuttingDown = true;
         if (zmxRefreshTimer != null) zmxRefreshTimer.stop();
+        herdrIntegration.stop();
         var allWindows = new ArrayList<>(windows);
         for (var w : allWindows) {
             var tp = getTabPane(w);
@@ -655,6 +674,21 @@ public class JHostty extends Application {
                 if (!session.ended()) zmxHeader.getChildren().add(new TreeItem<>(new SidebarItem.ZmxSessionItem(session)));
             }
             if (!zmxHeader.getChildren().isEmpty()) finalRoot.getChildren().add(zmxHeader);
+        }
+        if (herdrState.connected()) {
+            var herdrHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader("herdr " + herdrState.serverVersion()));
+            herdrHeader.setExpanded(true);
+            for (var ws : herdrState.workspaces()) {
+                var wsNode = new TreeItem<SidebarItem>(new SidebarItem.HerdrWorkspaceItem(ws));
+                wsNode.setExpanded(true);
+                for (var pane : herdrState.panes()) {
+                    if (pane.workspaceId().equals(ws.workspaceId())) {
+                        wsNode.getChildren().add(new TreeItem<>(new SidebarItem.HerdrPaneItem(pane)));
+                    }
+                }
+                herdrHeader.getChildren().add(wsNode);
+            }
+            finalRoot.getChildren().add(herdrHeader);
         }
         sidebar.setRoot(finalRoot);
     }
@@ -1673,6 +1707,8 @@ public class JHostty extends Application {
                     case SidebarItem.TerminalItem _ ->  icon.setText("\u276F");
                     case SidebarItem.SectionHeader _ -> icon.setText("\u2261");
                     case SidebarItem.ZmxSessionItem s -> icon.setText(s.session().clients() > 0 ? "\u25C9" : "\u25CB");
+                    case SidebarItem.HerdrWorkspaceItem _ -> icon.setText("\u25A3"); // filled square
+                    case SidebarItem.HerdrPaneItem p -> icon.setText(p.pane().agentStatus() != null ? "\u25CF" : "\u25CB"); // filled/empty circle
                 }
                 icon.setTextFill(getTextFill());
                 setGraphic(icon);
@@ -1697,6 +1733,8 @@ public class JHostty extends Application {
                     if (tp2 != null) { tp2.getSelectionModel().select(ti.tab()); var stg = findStage(tp2); if (stg != null) { stg.toFront(); stg.requestFocus(); } Platform.runLater(() -> focusFirstTerminal(ti.tab().getContent())); }
                 }
                 case SidebarItem.WindowItem wi -> { wi.stage().toFront(); wi.stage().requestFocus(); }
+                case SidebarItem.HerdrWorkspaceItem _ -> {} // ponytail: no action yet, just display
+                case SidebarItem.HerdrPaneItem _ -> {} // ponytail: no action yet, just display
                 case SidebarItem.ZmxSessionItem zi -> {
                     var existing = findTerminalForZmxSession(zi.session().name());
                     if (existing != null) {

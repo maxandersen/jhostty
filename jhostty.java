@@ -8,6 +8,7 @@
 //DEPS org.slf4j:slf4j-nop:2.0.13
 //DEPS io.smallrye.config:smallrye-config:3.12.4
 //DEPS com.fasterxml.jackson.core:jackson-databind:2.18.2
+//DEPS dk.xam:jherdr:0.1.0-SNAPSHOT
 //SOURCES src/dk/xam/jhostty/JHostty.java
 //SOURCES src/dk/xam/jhostty/FontManager.java
 //SOURCES src/dk/xam/jhostty/LayoutCodec.java
@@ -20,6 +21,7 @@
 //SOURCES src/dk/xam/jhostty/CommandPalette.java
 //SOURCES src/dk/xam/jhostty/ThemeCss.java
 //SOURCES src/dk/xam/jhostty/ZmxSession.java
+//SOURCES src/dk/xam/jhostty/HerdrIntegration.java
 //SOURCES src/dk/xam/themes/ColorUtil.java
 //SOURCES src/dk/xam/themes/TerminalColorScheme.java
 //SOURCES src/dk/xam/themes/ThemeRegistry.java
