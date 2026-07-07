@@ -1,0 +1,11 @@
+# XcodeGen output (regenerated from project.yml)
+Ghostly.xcodeproj/
+
+# Xcode / SwiftPM
+.build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.xcuserstate
+.swiftpm/
+Package.resolved
