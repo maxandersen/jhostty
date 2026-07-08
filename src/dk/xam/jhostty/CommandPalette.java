@@ -15,7 +15,11 @@ import javafx.scene.layout.*;
  */
 final class CommandPalette {
 
-    record PaletteItem(String label, String shortcut, String category, Runnable action) {
+    record PaletteItem(String label, String shortcut, String category, String keywords, Runnable action) {
+        /** Convenience constructor for items with no extra search keywords. */
+        PaletteItem(String label, String shortcut, String category, Runnable action) {
+            this(label, shortcut, category, "", action);
+        }
         @Override public String toString() { return label; }
     }
 
@@ -37,7 +41,7 @@ final class CommandPalette {
         }
 
         var searchField = new TextField();
-        searchField.setPromptText("Type a command, tab name, or theme\u2026");
+        searchField.setPromptText("Type a command, session, tab, or theme\u2026");
         searchField.getStyleClass().add("jhostty-palette-search");
 
         var resultList = new ListView<PaletteItem>();
@@ -58,6 +62,7 @@ final class CommandPalette {
                     case "Pane"   -> "M0 0h10v10H0zM5 0v10M0 5h10";
                     case "Help"   -> "M3.5 1A2.5 2.5 0 016 3.5c0 1.5-2.5 1.5-2.5 3M3.5 8.5h0";
                     case "Tabs"   -> "M0 2h10M0 5h10M0 8h10";
+                    case "Sessions" -> "M0 1h10v8H0zM0 3h10M2 5l1.5 1.5L2 8";
                     case "Themes" -> "M5 0A5 5 0 000 5a5 5 0 005 5 5 5 0 005-5A5 5 0 005 0";
                     default       -> "M4 5a1 1 0 110 0 1 1 0 01-1 0";
                 };
@@ -85,7 +90,8 @@ final class CommandPalette {
             var lower = text == null ? "" : text.toLowerCase();
             allItems.stream()
                 .filter(item -> lower.isEmpty() || item.label().toLowerCase().contains(lower)
-                    || item.category().toLowerCase().contains(lower))
+                    || item.category().toLowerCase().contains(lower)
+                    || (item.keywords() != null && item.keywords().toLowerCase().contains(lower)))
                 .forEach(item -> resultList.getItems().add(item));
             if (!resultList.getItems().isEmpty()) resultList.getSelectionModel().select(0);
         });

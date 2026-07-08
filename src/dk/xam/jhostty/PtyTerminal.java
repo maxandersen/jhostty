@@ -33,6 +33,10 @@ public final class PtyTerminal implements Terminal {
     @Override public OutputStream input() { return process.getOutputStream(); }
     @Override public void resize(int columns, int rows) { process.setWinSize(new WinSize(columns, rows)); }
 
+    /** PID of the shell process, used for best-effort live working-directory lookup. */
+    public long pid() { return process.pid(); }
+    public boolean isAlive() { return process.isAlive(); }
+
     @Override
     public void close() {
         process.destroy();
