@@ -1,0 +1,70 @@
+name: Ghostly
+options:
+  bundleIdPrefix: dev.jbang.ghostly
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: 1.2.0
+  swift-nio:
+    url: https://github.com/apple/swift-nio
+    from: 2.60.0
+  swift-nio-ssh:
+    url: https://github.com/apple/swift-nio-ssh
+    from: 0.9.0
+  swift-crypto:
+    url: https://github.com/apple/swift-crypto
+    from: 3.0.0
+
+targets:
+  Ghostly:
+    type: application
+    platform: iOS
+    sources:
+      - path: Ghostly
+    info:
+      path: Ghostly/Resources/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.jbang.ghostly
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.9"
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+    dependencies:
+      - package: SwiftTerm
+      - package: swift-nio-ssh
+        product: NIOSSH
+      - package: swift-nio
+        product: NIOCore
+      - package: swift-nio
+        product: NIOPosix
+      - package: swift-crypto
+        product: Crypto
+
+  GhostlyTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Ghostly
+    settings:
+      base:
+        SWIFT_VERSION: "5.9"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Ghostly:
+    build:
+      targets:
+        Ghostly: all
+        GhostlyTests: [test]
+    test:
+      targets:
+        - GhostlyTests

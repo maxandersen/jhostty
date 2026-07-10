@@ -184,6 +184,15 @@ themes/
 | [JBang](https://jbang.dev) | Build & run | Zero-setup Java scripting |
 | [JavaFX](https://openjfx.io) | UI toolkit | Comes transitively via GhosttyFX |
 
+## Ghostly — iOS sibling
+
+[`ios/`](ios/) contains **Ghostly**, an iOS app in the jhostty family: a SwiftUI
+SSH terminal that is **[zmx](https://zmx.sh) session-aware**. It SSHes into your
+machines, opens a terminal (SwiftTerm rendering, swift-nio-ssh transport), and on
+connect detects persistent zmx sessions so you can re-attach after a dropped
+connection. It reuses jhostty's Ghostty theme format and its `ZmxSession`
+parsing. See [ios/README.md](ios/README.md).
+
 ## License
 
 MIT
