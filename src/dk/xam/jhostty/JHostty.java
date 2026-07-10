@@ -47,6 +47,8 @@ public class JHostty extends Application {
     private static final double DEFAULT_SIZE = 15.0;
     static final String ZOOM_KEY = "jhostty.fontSize";
     static final String COMMAND_KEY = "jhostty.command";
+    static final String CWD_KEY = "jhostty.cwd";
+    static final String PTY_KEY = "jhostty.pty";
 
     private static final Set<TerminalView> closingTerminals = ConcurrentHashMap.newKeySet();
     static String currentFontFamily;
@@ -86,6 +88,7 @@ public class JHostty extends Application {
     // Layout
     static String lastGoodLayout = null;
     static boolean showThemesInPalette = false;
+    static boolean showSessionsInPalette = true;
 
 
     // Shared focus-follows-mouse state
@@ -822,12 +825,18 @@ public class JHostty extends Application {
 
     static TerminalView createTerminal(List<String> command, Map<String, String> env) {
         try {
+            final Path launchCwd = cwd;
+            final PtyTerminal[] ptyHolder = new PtyTerminal[1];
             var view = new TerminalView((columns, rows) -> {
                 var launcher = Shell.integrate(command, env);
-                return new PtyTerminal(launcher.command(), cwd, launcher.environment(), columns, rows);
+                var pty = new PtyTerminal(launcher.command(), launchCwd, launcher.environment(), columns, rows);
+                ptyHolder[0] = pty;
+                return pty;
             });
             view.getProperties().put(ZOOM_KEY, currentZoom);
             view.getProperties().put(COMMAND_KEY, List.copyOf(command));
+            view.getProperties().put(CWD_KEY, launchCwd.toString());
+            view.getProperties().put(PTY_KEY, ptyHolder);
             view.setFont(FontManager.resolveFont(currentFontFamily, currentZoom));
             view.setTheme(currentTheme);
 
@@ -912,6 +921,62 @@ public class JHostty extends Application {
     static List<String> getTerminalCommand(TerminalView v) {
         var cmd = v.getProperties().get(COMMAND_KEY);
         return cmd instanceof List<?> l ? (List<String>) l : shellCommand;
+    }
+
+    /**
+     * Best-effort current working directory for a terminal. On Linux the live cwd is
+     * read from {@code /proc/<pid>/cwd}; elsewhere (incl. macOS) it falls back to the
+     * directory the shell was launched in.
+     */
+    static String getTerminalCwd(TerminalView v) {
+        if (v.getProperties().get(PTY_KEY) instanceof PtyTerminal[] holder && holder[0] != null) {
+            var live = liveCwd(holder[0]);
+            if (live != null) return live;
+        }
+        return v.getProperties().get(CWD_KEY) instanceof String s ? s : null;
+    }
+
+    private static String liveCwd(PtyTerminal pty) {
+        if (IS_MAC) return null; // no /proc on macOS; caller falls back to launch dir
+        try {
+            if (!pty.isAlive()) return null;
+            var link = Path.of("/proc", Long.toString(pty.pid()), "cwd");
+            if (Files.exists(link, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return link.toRealPath().toString();
+        } catch (Exception _) { /* ignore — fall back to launch dir */ }
+        return null;
+    }
+
+    /** Collapse the home-directory prefix to {@code ~} for display. */
+    static String shortCwd(String path) {
+        if (path == null || path.isBlank()) return "";
+        var home = System.getProperty("user.home");
+        return (home != null && !home.isBlank() && path.startsWith(home)) ? "~" + path.substring(home.length()) : path;
+    }
+
+    /** All terminals across every window and tab, in visual order. */
+    static List<TerminalView> allTerminals() {
+        var result = new ArrayList<TerminalView>();
+        for (var w : windows) {
+            var tp = getTabPane(w);
+            if (tp == null) continue;
+            for (var tab : tp.getTabs()) {
+                if (tab.getContent() instanceof SplitWorkspace ws) {
+                    for (var leaf : ws.allLeaves()) {
+                        if (leaf.content() instanceof TerminalView tv) result.add(tv);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Bring the terminal's window and tab to front and focus the pane. */
+    static void focusTerminalView(TerminalView view) {
+        var stg = findStageFor(view);
+        if (stg != null) { stg.toFront(); stg.requestFocus(); }
+        var tp = findTabPane(view);
+        if (tp != null) { var tab = findTab(view); if (tab != null) tp.getSelectionModel().select(tab); }
+        Platform.runLater(view::requestFocus);
     }
 
     static void bindTabTitle(Tab tab, TerminalView view) {
@@ -1518,6 +1583,7 @@ public class JHostty extends Application {
             var config = builder.build();
             currentThemeName = "Ghostty Default"; currentFontFamily = detectedFontFamily; baseFontSize = DEFAULT_SIZE; currentZoom = DEFAULT_SIZE;
             shellCommand = detectedShellCommand; savedWindowX = Double.NaN; savedWindowY = Double.NaN; sidebarVisible = false; savedLayout = null;
+            showSessionsInPalette = true;
             config.getOptionalValue("theme", String.class).filter(s -> !s.isBlank()).ifPresent(v -> currentThemeName = v);
             config.getOptionalValue("font", String.class).filter(s -> !s.isBlank()).ifPresent(v -> currentFontFamily = v);
             config.getOptionalValue("font-size", Double.class).ifPresent(v -> { baseFontSize = v; currentZoom = v; });
@@ -1526,6 +1592,7 @@ public class JHostty extends Application {
             config.getOptionalValue("window-x", Double.class).ifPresent(v -> savedWindowX = v);
             config.getOptionalValue("window-y", Double.class).ifPresent(v -> savedWindowY = v);
             config.getOptionalValue("sidebar", Boolean.class).ifPresent(v -> sidebarVisible = v);
+            config.getOptionalValue("palette-sessions", Boolean.class).ifPresent(v -> showSessionsInPalette = v);
             config.getOptionalValue("sidebar-width", Double.class).ifPresent(v -> sidebarDividerPos = v);
             config.getOptionalValue("layout", String.class).filter(s -> !s.isBlank()).ifPresent(v -> savedLayout = v);
             Themes.find(currentThemeName).ifPresent(t -> { currentThemeName = t.label(); currentTheme = t.theme(); });
@@ -1566,6 +1633,7 @@ public class JHostty extends Application {
             appendProp(sb, "window-x", savedWindowX);
             appendProp(sb, "window-y", savedWindowY);
             sb.append("sidebar=").append(sidebarVisible).append('\n');
+            sb.append("palette-sessions=").append(showSessionsInPalette).append('\n');
             for (var w : windows) {
                 var sp = getContentSplit(w);
                 if (sp != null && !sp.getDividers().isEmpty() && sidebarVisible) { sidebarDividerPos = sp.getDividerPositions()[0]; break; }
@@ -1825,12 +1893,7 @@ public class JHostty extends Application {
             var sel = sidebarTree.getSelectionModel().getSelectedItem();
             if (sel == null) return;
             switch (sel.getValue()) {
-                case SidebarItem.TerminalItem ti -> {
-                    var stg = findStageFor(ti.view()); if (stg != null) { stg.toFront(); stg.requestFocus(); }
-                    var tp2 = findTabPane(ti.view());
-                    if (tp2 != null) { var tab = findTab(ti.view()); if (tab != null) tp2.getSelectionModel().select(tab); }
-                    Platform.runLater(() -> ti.view().requestFocus());
-                }
+                case SidebarItem.TerminalItem ti -> focusTerminalView(ti.view());
                 case SidebarItem.TabItem ti -> {
                     var tp2 = findTabPaneForTab(ti.tab());
                     if (tp2 != null) { tp2.getSelectionModel().select(ti.tab()); var stg = findStage(tp2); if (stg != null) { stg.toFront(); stg.requestFocus(); } Platform.runLater(() -> focusFirstTerminal(ti.tab().getContent())); }
@@ -2123,6 +2186,25 @@ public class JHostty extends Application {
             var title = tab.getText() != null && !tab.getText().isBlank() ? tab.getText() : "Terminal";
             final int idx = i;
             commands.add(new CommandPalette.PaletteItem("Switch to: " + title, i < 9 ? sc + (i + 1) : "", "Tabs", () -> tabs.getSelectionModel().select(idx)));
+        }
+
+        commands.add(new CommandPalette.PaletteItem(
+            showSessionsInPalette ? "Hide Sessions in Palette" : "Show Sessions in Palette",
+            "", "View", () -> { showSessionsInPalette = !showSessionsInPalette; saveState(); }));
+
+        if (showSessionsInPalette) for (var v : allTerminals()) {
+            var cmd = getTerminalCommand(v);
+            var vtitle = v.getTitle();
+            var name = vtitle != null && !vtitle.isBlank() ? vtitle : commandBaseName(cmd);
+            var dir = getTerminalCwd(v);
+            var keywords = String.join(" ",
+                name,
+                cmd != null ? String.join(" ", cmd) : "",
+                dir != null ? dir : "");
+            final var target = v;
+            commands.add(new CommandPalette.PaletteItem(
+                "Session: " + name, shortCwd(dir), "Sessions", keywords,
+                () -> focusTerminalView(target)));
         }
 
         commands.add(new CommandPalette.PaletteItem(

@@ -58,7 +58,11 @@ A custom tiling workspace (inspired by [Mitchell Hashimoto's SuperSplit](https:/
 
 ### 🎯 Command Palette (⌘P)
 
-VS Code-style command palette with fuzzy search across all commands, tabs, and 1365 themes. Arrow keys to navigate, Enter to execute.
+VS Code-style command palette with fuzzy search across all commands, sessions, tabs, and 1365 themes. Arrow keys to navigate, Enter to execute.
+
+### 🔍 Fuzzy Session Finder
+
+Every open terminal (across all windows, tabs, and split panes) shows up in the command palette as a **Session** entry. Fuzzy-search by **title**, **running command**, or **current working directory** — the matching pane's cwd is shown on the right — and press Enter to jump straight to it, bringing its window and tab to front. Toggle the section on or off with **Show/Hide Sessions in Palette** (persisted via `palette-sessions`).
 
 ### 🎨 1365 Themes
 
