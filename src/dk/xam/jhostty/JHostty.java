@@ -937,7 +937,7 @@ public class JHostty extends Application {
     }
 
     private static String liveCwd(PtyTerminal pty) {
-        if (IS_MAC) return null; // no /proc on macOS; caller falls back to launch dir
+        if (IS_MAC || IS_WINDOWS) return null; // /proc only on Linux; caller falls back to launch dir
         try {
             if (!pty.isAlive()) return null;
             var link = Path.of("/proc", Long.toString(pty.pid()), "cwd");
