@@ -1,6 +1,6 @@
 ///usr/bin/env jbang "$0" "$@" ; exit $?
 //JAVA 25
-//DEPS io.github.vlaaad:ghosttyfx:0.1.173
+//DEPS io.github.vlaaad:ghosttyfx:0.1.185
 //DEPS org.openjfx:javafx-controls:26
 //DEPS org.openjfx:javafx-graphics:26
 //DEPS org.openjfx:javafx-base:26

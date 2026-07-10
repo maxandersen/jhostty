@@ -151,9 +151,11 @@ public class JHostty extends Application {
 
     @Override
     public void start(Stage _ignored) {
+        if (!debug) debug = getParameters().getRaw().contains("--debug");
         cwd = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
         configDir = resolveConfigDir();
 
+        FontManager.loadDownloadedFonts();
         detectedFontFamily = FontManager.defaultFontFamily();
         currentFontFamily = detectedFontFamily;
         currentThemeName = "Ghostty Default";
@@ -1103,6 +1105,7 @@ public class JHostty extends Application {
     static Button closeBtnSvg(String svgPath) {
         var icon = new Region();
         var shape = new javafx.scene.shape.SVGPath(); shape.setContent(svgPath);
+        icon.setShape(shape);
         icon.getStyleClass().add("close-icon");
         var btn = new Button();
         btn.setGraphic(icon);
@@ -1303,6 +1306,141 @@ public class JHostty extends Application {
         });
         var themeBox = new VBox(4, themeSearch, themeList);
 
+        // --- Font selector (unified installed + downloadable list) ---
+        var fontLabel = new Label("Font");
+        fontLabel.getStyleClass().add("settings-label");
+        var fontSearch = new TextField();
+        fontSearch.setPrefWidth(230);
+        var showAllFonts = new CheckBox("Show all system fonts");
+        showAllFonts.getStyleClass().add("settings-check");
+        showAllFonts.setStyle("-fx-font-size: 11;");
+
+        // FontItem: either an installed font or a downloadable Nerd Font
+        record FontItem(String family, FontManager.NerdFont nerdFont, boolean downloading) {
+            static FontItem installed(String family) { return new FontItem(family, null, false); }
+            static FontItem downloadable(FontManager.NerdFont nf) { return new FontItem(null, nf, false); }
+            static FontItem downloading(FontManager.NerdFont nf) { return new FontItem(null, nf, true); }
+            boolean isInstalled() { return family != null; }
+            String displayName() { return isInstalled() ? family : nerdFont.label() + " Nerd Font"; }
+        }
+
+        var fontList = new ListView<FontItem>();
+        fontList.setPrefHeight(200);
+
+        Runnable refreshFontList = () -> {
+            var filter = fontSearch.getText();
+            var lower = filter == null || filter.isBlank() ? "" : filter.toLowerCase();
+            var items = new ArrayList<FontItem>();
+            // Installed fonts
+            for (var f : FontManager.detectFonts()) {
+                if (!showAllFonts.isSelected() && !FontManager.isMonospaced(f)) continue;
+                if (!lower.isEmpty() && !f.toLowerCase().contains(lower)) continue;
+                items.add(FontItem.installed(f));
+            }
+            // Downloadable Nerd Fonts (not yet downloaded)
+            for (var nf : FontManager.NERD_FONTS) {
+                if (FontManager.isNerdFontDownloaded(nf)) continue;
+                if (!lower.isEmpty() && !nf.label().toLowerCase().contains(lower)) continue;
+                // Check if a matching downloading item exists in current list
+                var existing = fontList.getItems().stream()
+                    .filter(fi -> !fi.isInstalled() && fi.nerdFont().zipName().equals(nf.zipName()) && fi.downloading())
+                    .findFirst();
+                items.add(existing.orElse(FontItem.downloadable(nf)));
+            }
+            fontList.getItems().setAll(items);
+            fontSearch.setPromptText("Search fonts...");
+        };
+        refreshFontList.run();
+        showAllFonts.selectedProperty().addListener((_, _, _) -> refreshFontList.run());
+
+        fontList.setCellFactory(_ -> new javafx.scene.control.ListCell<>() {
+            @Override protected void updateItem(FontItem item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) { setText(null); setGraphic(null); setStyle(""); return; }
+                setText(item.displayName());
+                if (item.isInstalled()) {
+                    var bold = item.family().equals(currentFontFamily) ? "-fx-font-weight: bold;" : "";
+                    setStyle("-fx-font-family: '" + item.family() + "'; -fx-font-size: 13;" + bold);
+                    if (!FontManager.hasSaneResolution(item.family())) {
+                        var warn = new Label("⚠");
+                        warn.setStyle("-fx-text-fill: orange; -fx-font-size: 10;");
+                        setGraphic(warn);
+                        setContentDisplay(javafx.scene.control.ContentDisplay.RIGHT);
+                    } else {
+                        setGraphic(null);
+                    }
+                } else if (item.downloading()) {
+                    setStyle("-fx-text-fill: gray; -fx-font-size: 12; -fx-font-style: italic;");
+                    var spinner = new Label("⏳");
+                    spinner.setStyle("-fx-font-size: 10;");
+                    setGraphic(spinner);
+                    setContentDisplay(javafx.scene.control.ContentDisplay.LEFT);
+                } else {
+                    setStyle("-fx-text-fill: -fx-accent; -fx-font-size: 12;");
+                    var icon = new Label("⬇");
+                    icon.setStyle("-fx-font-size: 10;");
+                    setGraphic(icon);
+                    setContentDisplay(javafx.scene.control.ContentDisplay.LEFT);
+                }
+            }
+        });
+
+        // Scroll to current font
+        fontList.getItems().stream().filter(fi -> fi.isInstalled() && fi.family().equals(currentFontFamily)).findFirst()
+            .ifPresent(fi -> { fontList.getSelectionModel().select(fi); fontList.scrollTo(fi); });
+
+        fontSearch.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() == KeyCode.UP || e.getCode() == KeyCode.DOWN) {
+                var idx = fontList.getSelectionModel().getSelectedIndex();
+                if (e.getCode() == KeyCode.DOWN) idx = Math.min(idx + 1, fontList.getItems().size() - 1);
+                else idx = Math.max(idx - 1, 0);
+                fontList.getSelectionModel().select(idx);
+                fontList.scrollTo(idx);
+                e.consume();
+            } else if (e.getCode() == KeyCode.ENTER) {
+                e.consume();
+            }
+        });
+        fontSearch.textProperty().addListener((_, _, _) -> refreshFontList.run());
+
+        fontList.setOnMouseClicked(e -> {
+            var selected = fontList.getSelectionModel().getSelectedItem();
+            if (selected == null) return;
+            if (selected.isInstalled()) {
+                // Apply installed font
+                if (!selected.family().equals(currentFontFamily)) {
+                    currentFontFamily = selected.family();
+                    applyFontToAll();
+                    saveState();
+                    fontList.refresh(); // update bold on current
+                }
+            } else if (!selected.downloading()) {
+                // Download Nerd Font
+                var idx = fontList.getSelectionModel().getSelectedIndex();
+                fontList.getItems().set(idx, FontItem.downloading(selected.nerdFont()));
+                FontManager.downloadNerdFont(selected.nerdFont(), families -> {
+                    refreshFontList.run();
+                    if (!families.isEmpty()) {
+                        currentFontFamily = families.getFirst();
+                        applyFontToAll();
+                        saveState();
+                        fontList.getItems().stream()
+                            .filter(fi -> fi.isInstalled() && fi.family().equals(currentFontFamily)).findFirst()
+                            .ifPresent(fi -> { fontList.getSelectionModel().select(fi); fontList.scrollTo(fi); });
+                    }
+                }, err -> refreshFontList.run());
+            }
+        });
+        // Disable default selection-on-click for downloadable items
+        fontList.getSelectionModel().selectedItemProperty().addListener((_, _, selected) -> {
+            if (selected != null && selected.isInstalled() && !selected.family().equals(currentFontFamily)) {
+                currentFontFamily = selected.family();
+                applyFontToAll();
+                saveState();
+            }
+        });
+        var fontBox = new VBox(4, fontSearch, fontList, showAllFonts);
+
         // --- Zoom slider ---
         var zoomLabel = new Label("Zoom");
         zoomLabel.getStyleClass().add("settings-label");
@@ -1327,6 +1465,7 @@ public class JHostty extends Application {
         var panel = new VBox(10,
             titleRow, sep1,
             themeLabel, themeBox,
+            fontLabel, fontBox,
             zoomLabel, zoomRow,
             pastelLabel, pastelRow,
             gutterLabel, gutterRow,
@@ -1740,7 +1879,10 @@ public class JHostty extends Application {
         HBox.setHgrow(rightSpacer, Priority.ALWAYS);
         rightSpacer.setMouseTransparent(true);
 
-        var titleBar = new HBox(4, trafficSpacer, leftSpacer, titleLabel, rightSpacer, toolbar);
+        // Sidebar toggle: panel-with-lines icon (12×12 viewbox)
+        var btnSidebar = toolBtnSvg("M0 0h4v12H0ZM5.5 0h6.5v1.5H5.5ZM5.5 3h6.5v1.5H5.5ZM5.5 6h4.5v1.5H5.5Z", "Toggle Sidebar", JHostty::toggleSidebar);
+
+        var titleBar = new HBox(4, trafficSpacer, btnSidebar, leftSpacer, titleLabel, rightSpacer, toolbar);
         titleBar.setAlignment(javafx.geometry.Pos.CENTER);
         titleBar.setPadding(new javafx.geometry.Insets(0, 4, 0, 4));
         titleBar.setStyle("-fx-background-color: transparent;");
@@ -2100,16 +2242,7 @@ public class JHostty extends Application {
 
     /** Check if the terminal's underlying session has mouse tracking enabled (e.g. for TUI apps like htop, vim). */
     static boolean isMouseTrackingEnabled(TerminalView view) {
-        try {
-            var sessionField = TerminalView.class.getDeclaredField("terminalSession");
-            sessionField.setAccessible(true);
-            var session = sessionField.get(view);
-            var method = session.getClass().getDeclaredMethod("mouseTrackingEnabled");
-            method.setAccessible(true);
-            return (boolean) method.invoke(session);
-        } catch (Exception _) {
-            return false; // If reflection fails, assume no tracking — show context menu
-        }
+        return view.isMouseTrackingEnabled();
     }
 
     // --- Reset ---

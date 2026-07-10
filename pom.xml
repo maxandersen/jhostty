@@ -18,7 +18,7 @@
 		<dependency>
 			<groupId>io.github.vlaaad</groupId>
 			<artifactId>ghosttyfx</artifactId>
-			<version>0.1.173</version>
+			<version>0.1.185</version>
 		</dependency>
 		<dependency>
 			<groupId>org.openjfx</groupId>
