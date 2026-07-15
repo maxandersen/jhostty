@@ -83,6 +83,10 @@ public class JHostty extends Application {
     // zmx
     static List<ZmxSession> zmxSessions = List.of();
     static volatile boolean zmxAvailable = false;
+    static final HerdrIntegration herdrIntegration = new HerdrIntegration();
+    static HerdrIntegration.HerdrState herdrState = HerdrIntegration.HerdrState.DISCONNECTED;
+    static volatile boolean zmxSectionExpanded = false;
+    static volatile boolean herdrSectionExpanded = false;
     static Timeline zmxRefreshTimer;
 
     // Layout
@@ -126,6 +130,19 @@ public class JHostty extends Application {
         record SectionHeader(String title) implements SidebarItem {
             public String label() { return title; }
             @Override public String toString() { return label(); }
+        }
+        record HerdrWorkspaceItem(dk.xam.jherdr.api.results.WorkspaceInfo workspace) implements SidebarItem {
+            public String label() { return workspace.label() != null ? workspace.label() : "workspace-" + workspace.number(); }
+        }
+        record HerdrPaneItem(dk.xam.jherdr.api.results.PaneInfo pane) implements SidebarItem {
+            public String label() {
+                var name = pane.label() != null ? pane.label() : pane.paneId().toString();
+                var agent = pane.displayAgent();
+                var status = pane.agentStatus();
+                if (agent != null && status != null) name += " [" + agent + ": " + status + "]";
+                else if (agent != null) name += " [" + agent + "]";
+                return name;
+            }
         }
         record ZmxSessionItem(ZmxSession session) implements SidebarItem {
             public String label() { return session.displayLabel(); }
@@ -182,6 +199,10 @@ public class JHostty extends Application {
 
         Platform.setImplicitExit(false);
         initZmx();
+        herdrIntegration.setOnUpdate(state -> {
+            if (!state.equals(herdrState)) { herdrState = state; rebuildAllSidebars(); }
+        });
+        herdrIntegration.start();
         restoreLayout();
         if (IS_MAC) {
             Platform.runLater(() -> { MacUtils.setAppName("jhostty"); MacUtils.setDockIcon(JHostty.class); });
@@ -193,6 +214,7 @@ public class JHostty extends Application {
         debug("stop: cleaning up resources");
         shuttingDown = true;
         if (zmxRefreshTimer != null) zmxRefreshTimer.stop();
+        herdrIntegration.stop();
         var allWindows = new ArrayList<>(windows);
         for (var w : allWindows) {
             var tp = getTabPane(w);
@@ -206,6 +228,7 @@ public class JHostty extends Application {
         saveState();
         shuttingDown = true;
         if (zmxRefreshTimer != null) zmxRefreshTimer.stop();
+        herdrIntegration.stop();
         var allWindows = new ArrayList<>(windows);
         for (var w : allWindows) {
             var tp = getTabPane(w);
@@ -653,13 +676,31 @@ public class JHostty extends Application {
         } else {
             finalRoot = root;
         }
-        if (zmxAvailable && !zmxSessions.isEmpty()) {
+        if (zmxAvailable) {
             var zmxHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader("zmx sessions"));
-            zmxHeader.setExpanded(true);
+            zmxHeader.setExpanded(zmxSectionExpanded);
             for (var session : zmxSessions) {
                 if (!session.ended()) zmxHeader.getChildren().add(new TreeItem<>(new SidebarItem.ZmxSessionItem(session)));
             }
-            if (!zmxHeader.getChildren().isEmpty()) finalRoot.getChildren().add(zmxHeader);
+            finalRoot.getChildren().add(zmxHeader);
+        }
+        {
+            var herdrLabel = herdrState.connected() ? "herdr " + herdrState.serverVersion() : "herdr";
+            var herdrHeader = new TreeItem<SidebarItem>(new SidebarItem.SectionHeader(herdrLabel));
+            herdrHeader.setExpanded(herdrSectionExpanded);
+            if (herdrState.connected()) {
+                for (var ws : herdrState.workspaces()) {
+                    var wsNode = new TreeItem<SidebarItem>(new SidebarItem.HerdrWorkspaceItem(ws));
+                    wsNode.setExpanded(true);
+                    for (var pane : herdrState.panes()) {
+                        if (pane.workspaceId().equals(ws.workspaceId())) {
+                            wsNode.getChildren().add(new TreeItem<>(new SidebarItem.HerdrPaneItem(pane)));
+                        }
+                    }
+                    herdrHeader.getChildren().add(wsNode);
+                }
+            }
+            finalRoot.getChildren().add(herdrHeader);
         }
         sidebar.setRoot(finalRoot);
     }
@@ -1880,6 +1921,8 @@ public class JHostty extends Application {
                     case SidebarItem.TerminalItem _ ->  icon.setText("\u276F");
                     case SidebarItem.SectionHeader _ -> icon.setText("\u2261");
                     case SidebarItem.ZmxSessionItem s -> icon.setText(s.session().clients() > 0 ? "\u25C9" : "\u25CB");
+                    case SidebarItem.HerdrWorkspaceItem _ -> icon.setText("\u25A3"); // filled square
+                    case SidebarItem.HerdrPaneItem p -> icon.setText(p.pane().agentStatus() != null ? "\u25CF" : "\u25CB"); // filled/empty circle
                 }
                 icon.setTextFill(getTextFill());
                 setGraphic(icon);
@@ -1899,6 +1942,8 @@ public class JHostty extends Application {
                     if (tp2 != null) { tp2.getSelectionModel().select(ti.tab()); var stg = findStage(tp2); if (stg != null) { stg.toFront(); stg.requestFocus(); } Platform.runLater(() -> focusFirstTerminal(ti.tab().getContent())); }
                 }
                 case SidebarItem.WindowItem wi -> { wi.stage().toFront(); wi.stage().requestFocus(); }
+                case SidebarItem.HerdrWorkspaceItem hwi -> attachHerdrWorkspace(hwi.workspace());
+                case SidebarItem.HerdrPaneItem hpi -> attachHerdrPane(hpi.pane());
                 case SidebarItem.ZmxSessionItem zi -> {
                     var existing = findTerminalForZmxSession(zi.session().name());
                     if (existing != null) {
@@ -1907,7 +1952,10 @@ public class JHostty extends Application {
                         Platform.runLater(existing::requestFocus);
                     } else attachZmxSession(zi.session().name());
                 }
-                case SidebarItem.SectionHeader _ -> {}
+                case SidebarItem.SectionHeader sh -> {
+                    if (sh.title().startsWith("zmx")) { zmxSectionExpanded = true; refreshZmxSessions(); }
+                    else if (sh.title().startsWith("herdr")) { herdrSectionExpanded = true; herdrIntegration.shouldPoll = true; }
+                }
             }
         });
 
@@ -2093,6 +2141,7 @@ public class JHostty extends Application {
     }
 
     static void refreshZmxSessions() {
+        if (!sidebarVisible || !zmxSectionExpanded) return;
         Thread.ofVirtual().name("zmx-list").start(() -> {
             try {
                 var pb = new ProcessBuilder("zmx", "list");
@@ -2101,7 +2150,7 @@ public class JHostty extends Application {
                 var output = new String(proc.getInputStream().readAllBytes()).trim();
                 if (!proc.waitFor(5, TimeUnit.SECONDS)) { proc.destroyForcibly(); return; }
                 var sessions = ZmxSession.parseZmxList(output);
-                Platform.runLater(() -> { zmxSessions = sessions; rebuildAllSidebars(); });
+                if (!sessions.equals(zmxSessions)) Platform.runLater(() -> { zmxSessions = sessions; rebuildAllSidebars(); });
             } catch (Exception e) { debug("zmx list failed: " + e.getMessage()); }
         });
     }
@@ -2130,6 +2179,105 @@ public class JHostty extends Application {
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
         Platform.runLater(JHostty::saveState);
+    }
+
+    // --- Herdr integration ---
+
+    /** Open a jhostty window mirroring a herdr workspace using layout.export for proper split tree. */
+    static void attachHerdrWorkspace(dk.xam.jherdr.api.results.WorkspaceInfo workspace) {
+        Thread.ofVirtual().name("herdr-attach").start(() -> {
+            try (var h = dk.xam.jherdr.Herdr.connect()) {
+                var tabs = h.api().tab().list(new dk.xam.jherdr.api.params.TabListParams(workspace.workspaceId())).tabs();
+                // Export layout tree for each tab
+                var layouts = new ArrayList<com.fasterxml.jackson.databind.JsonNode>();
+                for (var tab : tabs) {
+                    var params = dk.xam.jherdr.protocol.JherdrJson.MAPPER.createObjectNode();
+                    params.put("tab_id", tab.tabId().toString());
+                    var result = h.raw("layout.export", params);
+                    layouts.add(result.path("layout"));
+                }
+                var label = workspace.label() != null ? workspace.label() : "herdr";
+                debug("herdr attach: workspace=" + workspace.workspaceId() + " tabs=" + tabs.size() + " layouts=" + layouts.size());
+                for (int li = 0; li < layouts.size(); li++) debug("  tab " + tabs.get(li).tabId() + ": " + layouts.get(li).path("root").path("type").asText());
+                Platform.runLater(() -> buildHerdrWindow(label, tabs, layouts));
+            } catch (Exception e) { System.err.println("[jhostty] herdr attach failed: " + e); e.printStackTrace(); }
+        });
+    }
+
+    /** Double-click a herdr pane — open its workspace. */
+    static void attachHerdrPane(dk.xam.jherdr.api.results.PaneInfo pane) {
+        for (var ws : herdrState.workspaces()) {
+            if (ws.workspaceId().equals(pane.workspaceId())) { attachHerdrWorkspace(ws); return; }
+        }
+    }
+
+    /** Build a jhostty window from herdr layout trees. */
+    private static void buildHerdrWindow(String wsLabel, List<dk.xam.jherdr.api.results.TabInfo> tabs,
+                                          List<com.fasterxml.jackson.databind.JsonNode> layouts) {
+        var stage = newWindowEmpty();
+        if (stage == null) return;
+        var tabPane = getTabPane(stage);
+        if (tabPane == null) return;
+        stage.setTitle("herdr: " + wsLabel);
+
+        for (int i = 0; i < tabs.size() && i < layouts.size(); i++) {
+            var root = layouts.get(i).path("root");
+            if (root.isMissingNode()) continue;
+            var tree = parseHerdrLayoutNode(root);
+            if (tree == null) continue;
+            var ws = new SplitWorkspace();
+            ws.setContentFactory(() -> createTerminal());
+            configureWorkspace(ws, tabPane);
+            ws.setRoot(tree);
+            var tab = createWorkspaceTab(ws, tabPane);
+            tabPane.getTabs().add(tab);
+        }
+        if (tabPane.getTabs().isEmpty()) newTab(tabPane);
+        tabPane.getSelectionModel().selectFirst();
+    }
+
+    /** Recursively parse a herdr BSP layout node into a jhostty SplitNode. */
+    private static SplitNode parseHerdrLayoutNode(com.fasterxml.jackson.databind.JsonNode node) {
+        var type = node.path("type").asText();
+        if ("pane".equals(type)) {
+            var paneIdStr = node.path("pane_id").asText(null);
+            if (paneIdStr == null) return null;
+            var herdrPaneId = new dk.xam.jherdr.api.ids.PaneId(paneIdStr);
+            var view = createHerdrTerminal(herdrPaneId, node.path("label").asText(paneIdStr));
+            if (view == null) return null;
+            return new LeafPane(PaneId.next(), view, paneIdStr);
+        } else if ("split".equals(type)) {
+            var direction = node.path("direction").asText("right");
+            var ratio = node.path("ratio").asDouble(0.5);
+            var first = parseHerdrLayoutNode(node.path("first"));
+            var second = parseHerdrLayoutNode(node.path("second"));
+            if (first == null && second == null) return null;
+            if (first == null) return second;
+            if (second == null) return first;
+            var orient = "down".equals(direction) ? Orientation.VERTICAL : Orientation.HORIZONTAL;
+            return new Split(orient, List.of(first, second), List.of(ratio, 1.0 - ratio));
+        }
+        return null;
+    }
+
+    /** Create a TerminalView backed by a herdr pane. */
+    static TerminalView createHerdrTerminal(dk.xam.jherdr.api.ids.PaneId paneId, String label) {
+        try {
+            var view = new TerminalView((columns, rows) -> new HerdrTerminal(paneId));
+            view.getProperties().put(ZOOM_KEY, currentZoom);
+            view.setFont(FontManager.resolveFont(currentFontFamily, currentZoom));
+            view.setTheme(currentTheme);
+            view.focusedProperty().addListener((_, _, focused) -> {
+                if (focused) {
+                    activeTerminal = view;
+                    rebuildAllSidebars();
+                }
+            });
+            return view;
+        } catch (Exception e) {
+            debug("herdr terminal creation failed: " + e.getMessage());
+            return null;
+        }
     }
 
     // --- Tab Overview (delegated to TabOverview.java) ---
